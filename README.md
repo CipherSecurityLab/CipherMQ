@@ -23,7 +23,7 @@ Initial architecture of CipherMQ is as follows:
 <p align="center">
 <img src="https://github.com/fozouni/CipherMQ/blob/main/docs/diagrams/Component_diagram.png">
 </p>
-See docs directory for more info.
+
 
 ## Prerequisites
 
@@ -68,7 +68,7 @@ See docs directory for more info.
 
 ## Documentation
 The `docs` directory contains detailed project documentation:
-- **[Architecture Overview](./docs/architecture.markdown)**: Describes the system’s components, data flow, and design choices.
+- **[Architecture Overview](./docs/architecture.md)**: Describes the system’s components, data flow, and design choices.
 - **Diagrams**: The `docs/diagrams/` folder contains PlantUML files (`Component_diagram.puml`, `Sequence_diagram.puml`). To render them:
   - Use an online tool like [PlantUML Server](http://www.plantuml.com/plantuml).
   - Or install PlantUML locally and run:
