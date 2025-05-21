@@ -1,10 +1,8 @@
 # CipherMQ: A new generation message broker
 
-[toc]
-
-![](.\docs\CipherMQ.jpg)
-
-
+<p align="center">
+<img src="https://github.com/fozouni/CipherMQ/blob/main/docs/CipherMQ.jpg" width="550" height="550">
+</p>
 
 The Secure Message Broker is a high-performance, real-time messaging system designed to facilitate secure and efficient communication between distributed applications. Built with a Rust-based server and Python-based clients, it leverages AES-GCM encryption to ensure the confidentiality and integrity of messages, making it ideal for applications requiring robust security, such as IoT, financial systems, or real-time collaboration tools. The system uses WebSocket communication for low-latency, bidirectional data transfer and supports both single and batch message processing to accommodate diverse workloads.
 
