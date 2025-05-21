@@ -1,0 +1,30 @@
+@startuml Message Broker Architecture
+
+actor "Benchmarking Client\n(Python)" as HTTPClient
+actor "WebSocket Client\n(Python)" as WSClient
+
+package "Message Broker" {
+  [Input Gateway\n(Axum HTTP Server)] #--# [Server\n(In-Memory Storage)]
+  [Server\n(In-Memory Storage)] #--# [Sender\n(WebSocket Server)]
+}
+
+HTTPClient --> [Input Gateway\n(Axum HTTP Server)] : POST JSON\n127.0.0.1:3000/input\n127.0.0.1:3000/input/batch
+[Input Gateway\n(Axum HTTP Server)] --> [Server\n(In-Memory Storage)] : Encrypted Data
+[Server\n(In-Memory Storage)] --> [Sender\n(WebSocket Server)] : Encrypted Data\n(Tokio MPSC Channel)
+[Sender\n(WebSocket Server)] --> WSClient : Decrypted Messages\n127.0.0.1:8080 (WebSocket)
+
+note right of [Input Gateway\n(Axum HTTP Server)]
+  1. Encrypt & Serialize JSON
+  2. Supports single and batch messages
+end note
+
+note right of [Server\n(In-Memory Storage)]
+  2. Store in DashMap & Forward
+end note
+
+note right of [Sender\n(WebSocket Server)]
+  3. Decrypt & Push
+  4. Sends batches of up to 10 messages
+end note
+
+@enduml
