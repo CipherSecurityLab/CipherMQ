@@ -4,7 +4,7 @@
 The Secure Message Broker is a distributed messaging system designed for secure, real-time communication. It consists of a Rust-based server handling HTTP and WebSocket communication, a Python-based WebSocket client for receiving messages, and a benchmarking script for performance evaluation. The system uses AES-GCM encryption to ensure message confidentiality and integrity, making it suitable for applications requiring robust security.
 
 ## System Components
-The architecture comprises three main components, as illustrated in the [Component Diagram](diagrams/Component_diagram.puml):
+The architecture comprises three main components, as illustrated in the [Component Diagram](./diagrams/Component_diagram.puml):
 
 1. **HTTP Server (Rust)**:
    - Built with the `axum` framework, running on port 3000.
