@@ -23,7 +23,7 @@ The architecture comprises three main components, as illustrated in the [Compone
    - Uses a `queue.Queue` for thread-safe message processing.
 
 ## Data Flow
-The [Sequence Diagram](diagrams/Sequence_diagram.puml) illustrates the data flow:
+The [Sequence Diagram](./diagrams/Sequence_diagram.puml) illustrates the data flow:
 1. A client sends a message (or batch) to the HTTP server via POST requests.
 2. The server encrypts the message(s) and stores them in the `DashMap`.
 3. The encrypted messages are sent to the WebSocket sender via the `mpsc` channel.
@@ -43,4 +43,4 @@ The system is designed to handle concurrent requests efficiently, with `aiohttp`
 - Persistent storage (e.g., database) instead of `DashMap`.
 - Authentication for WebSocket clients.
 
-For detailed interactions, refer to the [Sequence Diagram](diagrams/Sequence_diagram.puml).
+For detailed interactions, refer to the [Sequence Diagram](./diagrams/Sequence_diagram.puml).
