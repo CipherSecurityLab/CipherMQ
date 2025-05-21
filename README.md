@@ -18,6 +18,13 @@ This project combines the memory safety and performance of Rust with the accessi
 - **Cross-Language Integration**: Combines Rust’s performance and safety for the server with Python’s simplicity for clients, making the system accessible to a wide range of developers.
 - **Extensive Logging and Monitoring**: Provides detailed logging through Rust’s `tracing` and Python’s `logging` modules, facilitating debugging and performance analysis.
 
+Initial architecture of CipherMQ is as follows:
+
+<p align="center">
+<img src="https://github.com/fozouni/CipherMQ/blob/main/docs/diagrams/Component_diagram.png">
+</p>
+See docs directory for more info.
+
 ## Prerequisites
 
 - [Rust](https://www.rust-lang.org/) (latest stable version)
