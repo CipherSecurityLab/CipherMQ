@@ -1,10 +1,14 @@
 # Architecture Overview
 
 ## Introduction
-The Secure Message Broker is a distributed messaging system designed for secure, real-time communication. It consists of a Rust-based server handling HTTP and WebSocket communication, a Python-based WebSocket client for receiving messages, and a benchmarking script for performance evaluation. The system uses AES-GCM encryption to ensure message confidentiality and integrity, making it suitable for applications requiring robust security.
+The CipherMQ is a distributed messaging system designed for secure, real-time communication. It consists of a Rust-based server handling HTTP and WebSocket communication, a Python-based WebSocket client for receiving messages, and a benchmarking script for performance evaluation. The system uses AES-GCM encryption to ensure message confidentiality and integrity, making it suitable for applications requiring robust security.
 
 ## System Components
 The architecture comprises three main components, as illustrated in the [Component Diagram](./diagrams/Component_diagram.puml):
+
+<p align="center">
+<img src="https://github.com/fozouni/CipherMQ/blob/main/docs/diagrams/Component_diagram.png">
+</p>
 
 1. **HTTP Server (Rust)**:
    - Built with the `axum` framework, running on port 3000.
@@ -29,6 +33,10 @@ The [Sequence Diagram](./diagrams/Sequence_diagram.puml) illustrates the data fl
 3. The encrypted messages are sent to the WebSocket sender via the `mpsc` channel.
 4. The sender decrypts the messages, batches them, and transmits them to connected WebSocket clients.
 5. The Python client receives the messages, processes them, and saves them to a file.
+
+<p align="center">
+<img src="https://github.com/fozouni/CipherMQ/blob/main/docs/diagrams/Sequence_diagram.png">
+</p>
 
 ## Design Choices
 - **Rust for Server**: Chosen for its performance, memory safety, and concurrency support via `tokio`.
