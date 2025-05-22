@@ -57,12 +57,14 @@ Initial architecture of CipherMQ is as follows:
 2. **Run the WebSocket client**:
    ```bash
    cd src/client
+   pip install websocket-client
    python WebSocket.py
    ```
 
 3. **Run the benchmarking script**:
    ```bash
    cd src/client
+   pip install tenacity aiohttp
    python Sim_send_100000_records.py
    ```
 
