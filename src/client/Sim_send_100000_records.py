@@ -1,4 +1,4 @@
-# Benchmarking Script for Secure Message Broker
+# Benchmarking Script for CipherMQ 
 # This script sends 100000 messages to the message broker to measure performance metrics
 # such as latency, throughput, and success rate. Results are saved to a CSV file.
 # Dependencies: aiohttp, asyncio, csv, logging, datetime, tenacity, multiprocessing
