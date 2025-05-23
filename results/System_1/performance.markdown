@@ -1,7 +1,7 @@
 # Performance Analysis
 
 ## Introduction
-This document evaluates the performance of the Secure Message Broker, a system designed for secure, real-time messaging with AES-GCM encryption. The analysis is based on a benchmark conducted using `src/client/Sim_send_100000_records.py`, modified to send 100,000 messages to the server. Key metrics include latency, throughput, and success rate, demonstrating the system’s efficiency for high-volume workloads. The results highlight its suitability for applications requiring low-latency, reliable communication, such as IoT or financial systems.
+This document evaluates the performance of CipherMQ, a system designed for secure, real-time messaging with AES-GCM encryption. The analysis is based on a benchmark conducted using `src/client/Sim_send_100000_records.py`, modified to send 100,000 messages to the server. Key metrics include latency, throughput, and success rate, demonstrating the system’s efficiency for high-volume workloads. The results highlight its suitability for applications requiring low-latency, reliable communication, such as IoT or financial systems.
 
 ## Methodology
 The benchmarking script sends 100,000 messages to the HTTP server (`http://127.0.0.1:3000/input/batch`) in batches of 20,000 messages, using `aiohttp` for asynchronous requests. The configuration includes:
@@ -31,7 +31,7 @@ The benchmark achieved exceptional performance, processing 100,000 messages in 1
 | Batches Sent          | 5                   |
 
 ## Analysis
-The results demonstrate the Secure Message Broker’s outstanding performance:
+The results demonstrate CipherMQ's outstanding performance:
 - **100% Success Rate**: All 100,000 messages were processed without errors, indicating robust error handling and retry logic (`tenacity`).
 - **Low Latency (0.0000243 seconds)**: The average latency per message is extremely low, driven by efficient batch processing (20,000 messages per batch) and `tokio`’s async handling in the Rust server.
 - **High Throughput (56,258.20 messages/sec)**: The system processes over 56,000 messages per second, making it suitable for high-volume, real-time applications.
@@ -39,4 +39,4 @@ The results demonstrate the Secure Message Broker’s outstanding performance:
 The use of large batches (20,000 messages) significantly reduces network overhead, contributing to the high throughput. The hardware’s 8 cores and 16 GB RAM support the concurrency level of 16, though the low CPU utilization (due to I/O-bound tasks) suggests room for further scaling.
 
 ## Conclusion
-The Secure Message Broker achieves exceptional performance, processing 100,000 messages in 1.78 seconds with a 100% success rate, average latency of 0.0000243 seconds, and throughput of 56,258.20 messages/second. These results make it ideal for high-throughput, low-latency applications like real-time analytics or secure IoT communication. The large batch size and efficient concurrency model ensure scalability, with opportunities for further optimization as outlined.
+CipherMQ achieves exceptional performance, processing 100,000 messages in 1.78 seconds with a 100% success rate, average latency of 0.0000243 seconds, and throughput of 56,258.20 messages/second. These results make it ideal for high-throughput, low-latency applications like real-time analytics or secure IoT communication. The large batch size and efficient concurrency model ensure scalability, with opportunities for further optimization as outlined.
