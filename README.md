@@ -6,7 +6,7 @@
 
 The CipherMQ is a high-performance, real-time messaging system designed to facilitate secure and efficient communication between distributed applications. Built with a Rust-based server and Python-based clients, it leverages AES-GCM encryption to ensure the confidentiality and integrity of messages, making it ideal for applications requiring robust security, such as IoT, financial systems, or real-time collaboration tools. The system uses WebSocket communication for low-latency, bidirectional data transfer and supports both single and batch message processing to accommodate diverse workloads.
 
-This project combines the memory safety and performance of Rust with the accessibility and flexibility of Python, enabling developers to integrate secure messaging into their applications with ease. Its modular architecture, comprehensive benchmarking tools, and detailed documentation make it suitable for both production environments and research purposes. Whether you’re building a scalable microservices architecture or experimenting with secure communication protocols, the Secure Message Broker provides a lightweight yet powerful solution.
+This project combines the memory safety and performance of Rust with the accessibility and flexibility of Python, enabling developers to integrate secure messaging into their applications with ease. Its modular architecture, comprehensive benchmarking tools, and detailed documentation make it suitable for both production environments and research purposes. Whether you’re building a scalable microservices architecture or experimenting with secure communication protocols, CipherMQ provides a lightweight yet powerful solution.
 
 ## Features
 
