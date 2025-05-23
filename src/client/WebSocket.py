@@ -1,4 +1,4 @@
-# WebSocket Client for Secure Message Broker
+# WebSocket Client for CipherMQ
 # This script connects to a WebSocket server, receives messages, and saves them to a JSON file.
 # It uses a thread-safe queue to process messages asynchronously.
 # Dependencies: websocket, time, queue, threading, json
