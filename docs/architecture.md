@@ -51,4 +51,3 @@ The system is designed to handle concurrent requests efficiently, with `aiohttp`
 - Persistent storage (e.g., database) instead of `DashMap`.
 - Authentication for WebSocket clients.
 
-For detailed interactions, refer to the [Sequence Diagram](./diagrams/Sequence_diagram.puml).
