@@ -1,16 +1,19 @@
 # WebSocket Client for CipherMQ
 # This script connects to a WebSocket server, receives messages, and saves them to a JSON file.
 # It uses a thread-safe queue to process messages asynchronously.
-# Dependencies: websocket, time, queue, threading, json
+# Dependencies: websocket, time, queue, threading, json, signal, sys
 
 import websocket
 import time
 import queue
 import threading
 import json
+import signal
+import sys
 
 # Initialize a thread-safe queue for storing received messages
 message_queue = queue.Queue()
+running = True  # Flag to control the message processing loop
 
 def on_message(ws, message):
     """Handle incoming WebSocket messages and add them to the queue.
@@ -56,8 +59,9 @@ def on_open(ws):
 
 def process_messages():
     """Process messages from the queue and save them to a JSON file."""
+    global running
     with open("received_messages.json", "a") as f:
-        while True:
+        while running:
             try:
                 # Retrieve a message from the queue with a 1-second timeout
                 message = message_queue.get(timeout=1)
@@ -67,11 +71,25 @@ def process_messages():
                 message_queue.task_done()
             except queue.Empty:
                 continue
+    print("Message processing thread stopped.")
+
+def signal_handler(sig, frame):
+    """Handle SIGINT (Ctrl+C) to gracefully shut down the WebSocket and processing thread."""
+    global running
+    print("\nReceived Ctrl+C, shutting down...")
+    running = False  # Signal the processing thread to stop
+    if 'ws' in globals():
+        ws.close()  # Close the WebSocket connection
+    sys.exit(0)
 
 if __name__ == "__main__":
+    # Register the signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Start a daemon thread to process messages from the queue
     threading.Thread(target=process_messages, daemon=True).start()
-    while True:
+    
+    while running:
         try:
             # Initialize and run the WebSocket client
             ws = websocket.WebSocketApp(
