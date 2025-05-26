@@ -21,7 +21,7 @@ This project combines the memory safety and performance of Rust with the accessi
 Initial architecture of CipherMQ is as follows:
 
 <p align="center">
-<img src="https://github.com/fozouni/CipherMQ/blob/main/docs/diagrams/Component_diagram.png">
+<img src="./docs/diagrams/Component_diagram.png">
 </p>
 
 
