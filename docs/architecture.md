@@ -7,7 +7,7 @@ The CipherMQ is a distributed messaging system designed for secure, real-time co
 The architecture comprises three main components, as illustrated in the [Component Diagram](./diagrams/Component_diagram.puml):
 
 <p align="center">
-<img src="https://github.com/fozouni/CipherMQ/blob/main/docs/diagrams/Component_diagram.png">
+<img src="./diagrams/Component_diagram.png">
 </p>
 
 1. **HTTP Server (Rust)**:
@@ -35,7 +35,7 @@ The [Sequence Diagram](./diagrams/Sequence_diagram.puml) illustrates the data fl
 5. The Python client receives the messages, processes them, and saves them to a file.
 
 <p align="center">
-<img src="https://github.com/fozouni/CipherMQ/blob/main/docs/diagrams/Sequence_diagram.png">
+<img src="./diagrams/Sequence_diagram.png">
 </p>
 
 ## Design Choices
