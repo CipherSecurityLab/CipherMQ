@@ -123,7 +123,7 @@ For a detailed breakdown of the architecture, including components, interactions
 ## Diagrams
 The following diagrams illustrate the architecture and operational flow of CipherMQ. They are located in the `docs/diagrams` directory:
 
-- **[Sequence Diagram](docs/diagrams/Sequence_Diagram.png)**: This diagram shows the end-to-end flow of a message through the system.
+- **[Sequence Diagram](docs/diagrams/Sequence_diagram.png)**: This diagram shows the end-to-end flow of a message through the system.
 
 - **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: This diagram illustrates the operational flow and processes of CipherMQ.
 
