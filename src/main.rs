@@ -1,259 +1,340 @@
-/*
-Secure Message Broker Server
-This file implements a Rust-based server for a secure message broker system.
-It uses AES-GCM encryption, Axum for HTTP routing, and Tokio-Tungstenite for WebSocket communication.
-Dependencies: aes_gcm, axum, dashmap, futures_util, serde, tokio, tokio-tungstenite, tracing
- */
-
-use aes_gcm::{
-    aead::{rand_core::RngCore, Aead, KeyInit, OsRng},
-    Aes256Gcm, Key, Nonce,
-};
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
-};
 use dashmap::DashMap;
-use futures_util::{future, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
-use tokio::task;
-use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
-// Input data structure for single messages received via HTTP.
-#[derive(Serialize, Deserialize, Clone)]
-struct InputData {
-    content: String,
+// Data structure for encrypted message with unique identifier
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct EncryptedInputData {
+    message_id: String, // Unique identifier for the message
+    ciphertext: String,
+    nonce: String,
+    tag: String,
+    enc_session_key: String,
 }
 
-// Input data structure for batch messages received via HTTP.
-#[derive(Serialize, Deserialize)]
-struct BatchInputData {
-    messages: Vec<InputData>,
+// Message status
+#[derive(Clone, Debug)]
+enum MessageStatus {
+    Sent,        // Message added to the queue
+    Delivered,  // Message delivered to a consumer
+    Acknowledged, // Consumer has acknowledged the message
 }
 
-// Structure for encrypted data, storing the ciphertext and nonce.
+// Structure for queue
 #[derive(Clone)]
-struct EncryptedData {
-    ciphertext: Vec<u8>,
-    nonce: [u8; 12],
+struct Queue {
+    name: String,
+    messages: VecDeque<(EncryptedInputData, MessageStatus)>,
+    consumers: Vec<mpsc::UnboundedSender<(String, EncryptedInputData)>>, // (message_id, message)
 }
 
-// Main server state, holding the data store, sender channel, and encryption key.
-// Uses DashMap for thread-safe, fast access to encrypted data.
+// Structure for exchange
+#[derive(Clone)]
+struct Exchange {
+    name: String,
+    bindings: HashMap<String, String>, // Routing key -> Queue name
+}
+
+// Server state
 struct ServerState {
-    data_store: DashMap<usize, EncryptedData>,
-    sender_tx: mpsc::UnboundedSender<EncryptedData>,
-    key: Key<Aes256Gcm>,
+    queues: DashMap<String, Queue>,
+    exchanges: DashMap<String, Exchange>,
+    message_status: DashMap<String, MessageStatus>, // message_id -> status
+}
+
+// Initializes server state with thread-safe DashMaps for concurrent queue, exchange, and message status management
+impl ServerState {
+    fn new() -> Self {
+        ServerState {
+            queues: DashMap::new(),
+            exchanges: DashMap::new(),
+            message_status: DashMap::new(),
+        }
+    }
+
+    // Declare queue
+    fn declare_queue(&self, queue_name: &str) {
+        if !self.queues.contains_key(queue_name) {
+            let queue = Queue {
+                name: queue_name.to_string(),
+                messages: VecDeque::new(),
+                consumers: Vec::new(),
+            };
+            self.queues.insert(queue_name.to_string(), queue);
+            info!("Queue '{}' declared with name: {}", queue_name, queue_name);
+        }
+    }
+
+    // Declare exchange
+    fn declare_exchange(&self, exchange_name: &str) {
+        if !self.exchanges.contains_key(exchange_name) {
+            let exchange = Exchange {
+                name: exchange_name.to_string(),
+                bindings: HashMap::new(),
+            };
+            self.exchanges.insert(exchange_name.to_string(), exchange);
+            info!("Exchange '{}' declared with name: {}", exchange_name, exchange_name);
+        }
+    }
+
+    // Bind queue to exchange
+    fn bind_queue(&self, exchange_name: &str, queue_name: &str, routing_key: &str) {
+        if let Some(mut exchange) = self.exchanges.get_mut(exchange_name) {
+            exchange
+                .bindings
+                .insert(routing_key.to_string(), queue_name.to_string());
+            info!(
+                "Queue '{}' bound to exchange '{}' (name: {}) with routing key '{}'",
+                queue_name, exchange_name, exchange.name, routing_key
+            );
+        } else {
+            warn!("Exchange '{}' not found", exchange_name);
+        }
+    }
+
+    // Publishes a message to the specified exchange, routes it to the appropriate queue based on the routing key, and notifies connected consumers
+    fn publish(&self, exchange_name: &str, routing_key: &str, mut message: EncryptedInputData) {
+        if message.message_id.is_empty() {
+            message.message_id = Uuid::new_v4().to_string();
+        }
+        self.message_status
+            .insert(message.message_id.clone(), MessageStatus::Sent);
+
+        if let Some(exchange) = self.exchanges.get(exchange_name) {
+            if let Some(queue_name) = exchange.bindings.get(routing_key) {
+                if let Some(mut queue) = self.queues.get_mut(queue_name) {
+                    queue
+                        .messages
+                        .push_back((message.clone(), MessageStatus::Sent));
+                    // Send to connected consumers
+                    for consumer in &queue.consumers {
+                        if consumer
+                            .send((message.message_id.clone(), message.clone()))
+                            .is_err()
+                        {
+                            warn!("Failed to send message to consumer for queue '{}'", queue.name);
+                        }
+                    }
+                    info!(
+                        "Published message {} to queue '{}' (name: {}) via exchange '{}' (name: {})",
+                        message.message_id, queue_name, queue.name, exchange_name, exchange.name
+                    );
+                } else {
+                    warn!("Queue '{}' not found", queue_name);
+                }
+            } else {
+                warn!("No binding found for routing key '{}'", routing_key);
+            }
+        } else {
+            warn!("Exchange '{}' not found", exchange_name);
+        }
+    }
+
+    // Register consumer
+    fn register_consumer(
+        &self,
+        queue_name: &str,
+        tx: mpsc::UnboundedSender<(String, EncryptedInputData)>,
+    ) {
+        if let Some(mut queue) = self.queues.get_mut(queue_name) {
+            queue.consumers.push(tx);
+            // Send existing messages to the new consumer
+            for (message, status) in &queue.messages {
+                if matches!(status, MessageStatus::Sent) {
+                    if let Some(consumer) = queue.consumers.last() {
+                        if consumer.send((message.message_id.clone(), message.clone())).is_err() {
+                            warn!("Failed to send message to new consumer for queue '{}'", queue.name);
+                        }
+                    }
+                }
+            }
+            info!("Consumer registered for queue '{}' (name: {})", queue_name, queue.name);
+        } else {
+            warn!("Queue '{}' not found", queue_name);
+        }
+    }
+
+    // Acknowledge message by consumer
+    fn acknowledge(&self, message_id: &str) {
+        if let Some(mut status) = self.message_status.get_mut(message_id) {
+            *status = MessageStatus::Acknowledged;
+            info!("Message {} acknowledged", message_id);
+
+            // Remove message from queues
+            for mut queue_entry in self.queues.iter_mut() {
+                let queue = queue_entry.value_mut();
+                queue.messages.retain(|(msg, _)| msg.message_id != message_id);
+            }
+        } else {
+            warn!("Message ID '{}' not found", message_id);
+        }
+    }
+
+    // Manual message consum
+    fn consume(&self, queue_name: &str) -> Option<(String, EncryptedInputData)> {
+        if let Some(mut queue) = self.queues.get_mut(queue_name) {
+            if let Some((message, status)) = queue.messages.pop_front() {
+                if matches!(status, MessageStatus::Sent) {
+                    self.message_status
+                        .insert(message.message_id.clone(), MessageStatus::Delivered);
+                    return Some((message.message_id.clone(), message));
+                }
+            }
+        }
+        None
+    }
+}
+
+// Asynchronously handles client commands and message delivery using tokio's select! macro, with mpsc channels for consumer notifications
+async fn handle_client(mut stream: TcpStream, state: Arc<ServerState>) {
+    let mut buffer = [0; 1024];
+    let (tx, mut rx) = mpsc::unbounded_channel::<(String, EncryptedInputData)>();
+
+    loop {
+        tokio::select! {
+            // Receive message from client
+            result = stream.read(&mut buffer) => {
+                match result {
+                    Ok(n) if n == 0 => {
+                        info!("Client disconnected");
+                        return;
+                    }
+                    Ok(n) => {
+                        let request = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
+                        let parts: Vec<&str> = request.splitn(2, ' ').collect();
+
+                        if parts.is_empty() {
+                            stream.write_all(b"Invalid command\n").await.unwrap();
+                            continue;
+                        }
+
+                        let command = parts[0];
+                        let args = parts.get(1).unwrap_or(&"").split_whitespace().collect::<Vec<&str>>();
+
+                        match command {
+                            "declare_queue" => {
+                                if !args.is_empty() {
+                                    state.declare_queue(args[0]);
+                                    stream.write_all(b"Queue declared\n").await.unwrap();
+                                } else {
+                                    stream.write_all(b"Missing queue name\n").await.unwrap();
+                                }
+                            }
+                            "declare_exchange" => {
+                                if !args.is_empty() {
+                                    state.declare_exchange(args[0]);
+                                    stream.write_all(b"Exchange declared\n").await.unwrap();
+                                } else {
+                                    stream.write_all(b"Missing exchange name\n").await.unwrap();
+                                }
+                            }
+                            "bind" => {
+                                if args.len() >= 3 {
+                                    state.bind_queue(args[0], args[1], args[2]);
+                                    stream.write_all(b"Queue bound\n").await.unwrap();
+                                } else {
+                                    stream.write_all(b"Missing parameters\n").await.unwrap();
+                                }
+                            }
+                            "publish" => {
+                                if args.len() >= 3 {
+                                    let message_str = args[2..].join(" ");
+                                    match serde_json::from_str::<EncryptedInputData>(&message_str) {
+                                        Ok(message) => {
+                                            state.publish(args[0], args[1], message);
+                                            stream.write_all(b"Message published\n").await.unwrap();
+                                        }
+                                        Err(e) => {
+                                            stream
+                                                .write_all(format!("Invalid message format: {}\n", e).as_bytes())
+                                                .await
+                                                .unwrap();
+                                        }
+                                    }
+                                } else {
+                                    stream.write_all(b"Missing parameters\n").await.unwrap();
+                                }
+                            }
+                            "consume" => {
+                                if !args.is_empty() {
+                                    state.register_consumer(args[0], tx.clone());
+                                    stream.write_all(b"Subscribed to queue\n").await.unwrap();
+                                } else {
+                                    stream.write_all(b"Missing queue name\n").await.unwrap();
+                                }
+                            }
+                            "fetch" => {
+                                if !args.is_empty() {
+                                    if let Some((message_id, message)) = state.consume(args[0]) {
+                                        let message_str = serde_json::to_string(&message).unwrap();
+                                        stream
+                                            .write_all(format!("Message: {} {}\n", message_id, message_str).as_bytes())
+                                            .await
+                                            .unwrap();
+                                    } else {
+                                        stream.write_all(b"No messages\n").await.unwrap();
+                                    }
+                                } else {
+                                    stream.write_all(b"Missing queue name\n").await.unwrap();
+                                }
+                            }
+                            "ack" => {
+                                if !args.is_empty() {
+                                    state.acknowledge(args[0]);
+                                    stream.write_all(b"Message acknowledged\n").await.unwrap();
+                                } else {
+                                    stream.write_all(b"Missing message ID\n").await.unwrap();
+                                }
+                            }
+                            _ => {
+                                stream.write_all(b"Unknown command\n").await.unwrap();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error reading from stream: {}", e);
+                        return;
+                    }
+                }
+            }
+            // Send message to client
+            Some((message_id, message)) = rx.recv() => {
+                let message_str = serde_json::to_string(&message).unwrap();
+                if stream.write_all(format!("Message: {} {}\n", message_id, message_str).as_bytes()).await.is_err() {
+                    warn!("Failed to send message to client");
+                    return;
+                }
+                // Update status to Delivered
+                state.message_status.insert(message_id.clone(), MessageStatus::Delivered);
+            }
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() {
-    // Initialize logging with the tracing framework for debugging and monitoring.
     tracing_subscriber::fmt::init();
 
-    // Create a channel for communication between the HTTP server and WebSocket sender.
-    let (sender_tx, mut sender_rx) = mpsc::unbounded_channel::<EncryptedData>();
+    let state = Arc::new(ServerState::new());
+    let listener = TcpListener::bind("127.0.0.1:5672").await.unwrap();
+    info!("Message Broker running on 127.0.0.1:5672");
 
-    // Generate a shared encryption key for AES-GCM.
-    let key = Aes256Gcm::generate_key(&mut OsRng);
+    // Sets up a default queue and exchange for basic message routing, bound with a default routing key
+    state.declare_queue("default_queue");
+    state.declare_exchange("default_exchange");
+    state.bind_queue("default_exchange", "default_queue", "default_key");
 
-    // Initialize the server state with a DashMap, sender channel, and encryption key.
-    let server_state = Arc::new(ServerState {
-        data_store: DashMap::new(),
-        sender_tx,
-        key,
-    });
-
-    // Set up the HTTP server (Input Gateway) using Axum for handling incoming messages.
-    let app = Router::new()
-        .route("/", get(|| async { "Message Broker Running" }))
-        .route("/input", post(handle_input))
-        .route("/input/batch", post(handle_batch_input))
-        .with_state(Arc::clone(&server_state));
-
-    let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
-    info!("Input Gateway running on http://127.0.0.1:3000");
-
-    // Run the WebSocket sender in a separate async task to handle outgoing messages.
-    tokio::spawn(async move {
-        let addr = "127.0.0.1:8080";
-        let listener = TcpListener::bind(addr).await.unwrap();
-        info!("Sender WebSocket running on ws://{}", addr);
-
-        // Accept incoming WebSocket connections in a loop.
-        while let Ok((stream, addr)) = listener.accept().await {
-            info!("New WebSocket connection from {}", addr);
-            let ws_stream = match tokio_tungstenite::accept_async(stream).await {
-                Ok(ws) => ws,
-                Err(e) => {
-                    warn!("Failed to accept WebSocket connection: {}", e);
-                    continue;
-                }
-            };
-            let (mut ws_tx, _) = ws_stream.split();
-            let cipher = Aes256Gcm::new(&server_state.key);
-            let mut buffer = Vec::new();
-
-            // Receive encrypted data from the channel and send to the WebSocket client.
-            while let Some(data) = sender_rx.recv().await {
-                // Decrypt the data using the shared key and nonce.
-                let plaintext = match cipher
-                    .decrypt(Nonce::from_slice(&data.nonce), data.ciphertext.as_ref())
-                {
-                    Ok(pt) => pt,
-                    Err(e) => {
-                        warn!(
-                            "Decryption failed: {}. Ciphertext: {:?}, Nonce: {:?}",
-                            e, data.ciphertext, data.nonce
-                        );
-                        continue;
-                    }
-                };
-                // Convert the decrypted bytes to a UTF-8 string.
-                let message = match String::from_utf8(plaintext) {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        warn!("Invalid UTF-8 data: {}", e);
-                        continue;
-                    }
-                };
-                buffer.push(message);
-
-                // Send a batch of messages after collecting 10, optimizing network usage.
-                if buffer.len() >= 10 {
-                    let batch_message = serde_json::to_string(&buffer).unwrap();
-                    if ws_tx
-                        .send(Message::Text(batch_message.into()))
-                        .await
-                        .is_err()
-                    {
-                        warn!("Failed to send batch to WebSocket client");
-                        break;
-                    }
-                    info!(
-                        "Sent batch of {} messages to WebSocket client",
-                        buffer.len()
-                    );
-                    buffer.clear();
-                }
-            }
-
-            // Send any remaining messages in the buffer before closing the connection.
-            if !buffer.is_empty() {
-                let batch_message = serde_json::to_string(&buffer).unwrap();
-                if ws_tx
-                    .send(Message::Text(batch_message.into()))
-                    .await
-                    .is_err()
-                {
-                    warn!("Failed to send final batch to WebSocket client");
-                }
-                info!(
-                    "Sent final batch of {} messages to WebSocket client",
-                    buffer.len()
-                );
-            }
-        }
-    });
-
-    // Run the Axum HTTP server to handle incoming requests.
-    axum::serve(listener, app).await.unwrap();
-}
-
-// Handler for processing single message input via HTTP POST.
-// Encrypts the message and stores it, then sends it to the WebSocket sender.
-async fn handle_input(
-    State(state): State<Arc<ServerState>>,
-    Json(input): Json<InputData>,
-) -> impl IntoResponse {
-    let cipher = Aes256Gcm::new(&state.key);
-    let mut nonce_bytes = [0u8; 12];
-    OsRng.fill_bytes(&mut nonce_bytes); // Generate a random nonce for encryption.
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    let ciphertext = cipher
-        .encrypt(nonce, input.content.as_bytes())
-        .map_err(|e| {
-            error!("Encryption failed: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    let encrypted_data = EncryptedData {
-        ciphertext,
-        nonce: nonce_bytes,
-    };
-
-    // Store the encrypted data in the DashMap using the current store length as the key.
-    let store_len = state.data_store.len();
-    state.data_store.insert(store_len, encrypted_data.clone());
-
-    // Send the encrypted data to the WebSocket sender via the channel.
-    if state.sender_tx.send(encrypted_data).is_err() {
-        error!("Failed to send data to Sender");
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    while let Ok((stream, addr)) = listener.accept().await {
+        info!("New connection from {}", addr);
+        let state = Arc::clone(&state);
+        tokio::spawn(async move {
+            handle_client(stream, state).await;
+        });
     }
-
-    info!("Data received and encrypted: {}", input.content);
-    Ok(StatusCode::OK)
-}
-
-// Handler for processing batch message input via HTTP POST.
-// Encrypts messages in parallel, stores them, and sends them to the WebSocket sender.
-async fn handle_batch_input(
-    State(state): State<Arc<ServerState>>,
-    Json(batch): Json<BatchInputData>,
-) -> impl IntoResponse {
-    let _cipher = Aes256Gcm::new(&state.key);
-
-    // Encrypt messages in parallel using async tasks for performance.
-    let encrypt_tasks: Vec<_> = batch
-        .messages
-        .iter()
-        .map(|input| {
-            let cipher = Aes256Gcm::new(&state.key);
-            let input = input.clone(); // Clone input for async task.
-            task::spawn(async move {
-                let mut nonce_bytes = [0u8; 12];
-                OsRng.fill_bytes(&mut nonce_bytes);
-                let nonce = Nonce::from_slice(&nonce_bytes);
-                let ciphertext = cipher.encrypt(nonce, input.content.as_bytes()).unwrap();
-                EncryptedData {
-                    ciphertext,
-                    nonce: nonce_bytes,
-                }
-            })
-        })
-        .collect();
-
-    let encrypted_batch: Vec<_> = future::join_all(encrypt_tasks)
-        .await
-        .into_iter()
-        .map(|res| res.unwrap())
-        .collect();
-
-    // Store the batch of encrypted data in the DashMap with sequential keys.
-    let store_len = state.data_store.len();
-    for (i, data) in encrypted_batch.iter().enumerate() {
-        state.data_store.insert(store_len + i, data.clone());
-    }
-
-    // Send each encrypted message in the batch to the WebSocket sender.
-    for data in encrypted_batch.iter() {
-        if state.sender_tx.send(data.clone()).is_err() {
-            error!("Failed to send data to Sender");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    info!(
-        "Batch of {} messages received and encrypted",
-        batch.messages.len()
-    );
-    Ok(StatusCode::OK)
 }
