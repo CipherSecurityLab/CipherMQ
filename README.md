@@ -1,91 +1,149 @@
-# CipherMQ: A new generation message broker
+# CipherMQ: A new generation secure message broker
 
 <p align="center">
 <img src="./docs/CipherMQ.jpg" width="350" height="350">
 </p>
+![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Rust](https://img.shields.io/badge/Rust-1.56%2B-orange.svg)
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
 
-The CipherMQ is a high-performance, real-time messaging system designed to facilitate secure and efficient communication between distributed applications. Built with a Rust-based server and Python-based clients, it leverages AES-GCM encryption to ensure the confidentiality and integrity of messages, making it ideal for applications requiring robust security, such as IoT, financial systems, or real-time collaboration tools. The system uses WebSocket communication for low-latency, bidirectional data transfer and supports both single and batch message processing to accommodate diverse workloads.
+**CipherMQ** is a secure message broker system designed to transmit encrypted messages between senders and receivers using a push-based architecture. It leverages hybrid encryption (RSA + AES-GCM) to ensure message confidentiality and authenticity. The server temporarily holds messages in memory (without persistent storage except for logs) and routes them through exchanges and queues to connected consumers.
 
-This project combines the memory safety and performance of Rust with the accessibility and flexibility of Python, enabling developers to integrate secure messaging into their applications with ease. Its modular architecture, comprehensive benchmarking tools, and detailed documentation make it suitable for both production environments and research purposes. Whether you’re building a scalable microservices architecture or experimenting with secure communication protocols, CipherMQ provides a lightweight yet powerful solution.
-
-## Features
-
-- **AES-GCM Encryption**: Ensures end-to-end message confidentiality and integrity using the industry-standard AES-256-GCM algorithm, protecting data against unauthorized access and tampering.
-- **Real-Time WebSocket Communication**: Enables low-latency, bidirectional messaging through WebSocket, ideal for real-time applications like chat systems or live data feeds.
-- **Efficient Batch Processing**: Supports sending multiple messages in a single request, reducing overhead and improving throughput for high-volume workloads.
-- **Robust Concurrency Handling**: Utilizes Rust’s `DashMap` for thread-safe data storage and Python’s `aiohttp` for asynchronous HTTP requests, ensuring scalability under concurrent loads.
-- **Comprehensive Benchmarking**: Includes a Python script (`Sim_send_100000_records.py`) to measure performance metrics like latency, throughput, and success rate, helping developers optimize system performance.
-- **Cross-Language Integration**: Combines Rust’s performance and safety for the server with Python’s simplicity for clients, making the system accessible to a wide range of developers.
-- **Extensive Logging and Monitoring**: Provides detailed logging through Rust’s `tracing` and Python’s `logging` modules, facilitating debugging and performance analysis.
+This project consists of three main components:
+- **Server** (`main.rs`): A Rust-based message broker for receiving, routing, and delivering messages.
+- **Sender** (`Sender.py`): A Python script that encrypts and sends messages to the server.
+- **Receiver** (`Receiver.py`): A Python script that receives, decrypts, and stores messages.
 
 Initial architecture of CipherMQ is as follows:
 
 <p align="center">
-<img src="./docs/diagrams/Component_diagram.png">
+<img src="./docs/diagrams/Diagram.png">
 </p>
 
+## Table of Contents
+1. [Features](#features)
+2. [Prerequisites](#prerequisites)
+3. [Installation](#installation)
+4. [Usage](#usage)
+5. [Architecture](#architecture)
+6. [Diagrams](#diagrams)
+7. [Future Improvements](#future-improvements)
+8. [Contributing](#contributing)
+9. [License](#license)
+
+## Features
+- **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
+- **Push-Based Messaging**: Messages are actively delivered to connected consumers.
+- **Flexible Routing**: Supports exchanges and queues with routing keys for message delivery.
+- **Message Acknowledgment**: Ensures reliable delivery with acknowledgment (`ack`) mechanism.
+- **Asynchronous Processing**: Uses Tokio for high-performance, concurrent connection handling.
+- **Thread-Safe Data Structures**: Leverages `DashMap` for safe multi-threaded operations.
 
 ## Prerequisites
+To run CipherMQ, you need:
+- [Rust](https://www.rust-lang.org/) : Version 1.56 or higher (for the server). 
+- [Python](https://www.python.org/) : Version 3.8 or higher (for Sender and Receiver).
+- [Key Generation](https://slproweb.com/products/Win32OpenSSL.html) : Use OpenSSL or the provided `RSA.py` script to generate keys.
 
-- [Rust](https://www.rust-lang.org/) (latest stable version)
-- [Python 3.8+](https://www.python.org/)
-- [PlantUML](https://plantuml.com/) (optional, for rendering diagrams)
 
 ## Installation
+### 1. Clone the Repository
+```bash
+git clone https://github.com/fozouni/CipherMQ.git
+cd CipherMQ
+```
+### 2. Set up the Rust server
+```bash
+cd src
+cargo build --release
+```
+### 3. Generate RSA Keys
+Run the provided `RSA.py` script to generate public and private keys:
+```bash
+cd src/client
+pip install pycryptodome
+python RSA.py
+```
+This creates:
+- `receiver_private.pem`: The receiver's private key.
+- `receiver_public.pem`: The receiver's public key.
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/fozouni/CipherMQ.git
-   cd CipherMQ
-   ```
+**Alternatively**, use OpenSSL:
+```bash
+openssl genrsa -out receiver_private.pem 2048
+openssl rsa -in receiver_private.pem -pubout -out receiver_public.pem
+```
 
-2. **Set up the Rust server**:
-   
-   ```bash
-   cd src
-   cargo build --release
-   ```
+> **Note**: Store the private key securely to prevent unauthorized access.
 
 ## Usage
-
-1. **Run the Rust server**:
+### 1. Run the Server
    ```bash
    cd src
    cargo run --release
    ```
+   The server runs on `127.0.0.1:5672` and initializes a default queue (`default_queue`) and exchange (`default_exchange`) with the routing key `default_key`.
 
-2. **Run the WebSocket client**:
-   ```bash
-   cd src/client
-   pip install websocket-client
-   python WebSocket.py
-   ```
+### 2. Run the Receiver
+Start the receiver to listen for messages:
+```bash
+cd src/client
+python Receiver.py
+```
+The receiver connects to the server, subscribes to `default_queue`, decrypts messages, and stores them in `received_messages.json`.
 
-3. **Run the benchmarking script**:
-   ```bash
-   cd src/client
-   pip install tenacity aiohttp
-   python Sim_send_100000_records.py
-   ```
+### 3. Run the Sender
+Send a sample message:
+```bash
+cd src/client
+python Sender.py
+```
+The sender encrypts a test message ("This is a hybrid test message.") and sends it to the server via `default_exchange` and `default_key`.
 
-## Documentation
-The `docs` directory contains detailed project documentation:
-- **[Architecture Overview](./docs/architecture.md)**: Describes the system’s components, data flow, and design choices.
-- **Diagrams**: The `docs/diagrams/` folder contains PlantUML files (`Component_diagram.puml`, `Sequence_diagram.puml`). To render them:
-  - Use an online tool like [PlantUML Server](http://www.plantuml.com/plantuml).
-  - Or install PlantUML locally and run:
-    ```bash
-    plantuml docs/diagrams/*.puml
-    ```
+### 4. Supported Client Commands
+Clients communicate with the server using a simple TCP-based text protocol. Supported commands:
+- `declare_queue <queue_name>`: Creates a new queue.
+- `declare_exchange <exchange_name>`: Creates a new exchange.
+- `bind <exchange_name> <queue_name> <routing_key>`: Binds a queue to an exchange with a routing key.
+- `publish <exchange_name> <routing_key> <message_json>`: Publishes an encrypted message.
+- `consume <queue_name>`: Subscribes to a queue for message delivery.
+- `fetch <queue_name>`: Manually retrieves a message from a queue.
+- `ack <message_id>`: Acknowledges a message.
 
-## Benchmark Results
-The `results` directory contains performance data from the benchmarking script (`src/client/Sim_send_100000_records.py`):
-- **`performance.markdown`**: Documents performance metrics (e.g., latency, throughput, success rate) across different machines.
-- **`benchmark_results.csv`**: Raw data from benchmarking runs, suitable for further analysis.
-- **`received_messages.json`**: Messages received by the WebSocket client, saved for verification.
+## Architecture
+CipherMQ architecture is based on a message broker model with the following components:
+- **Server** (`main.rs`): Manages message routing and delivery using exchanges and queues.
+- **Sender** (`Sender.py`): Encrypts messages using hybrid encryption and sends them to the server.
+- **Receiver** (`Receiver.py`): Receives, decrypts, and stores messages in a JSON file.
+- **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
+
+For a detailed breakdown of the architecture, including components, interactions, and server details, refer to the [CipherMQ Project Architecture](docs/Project_Architecture.markdown) document in the `docs` directory.
+
+## Diagrams
+The following diagrams illustrate the architecture and operational flow of CipherMQ. They are located in the `docs/diagrams` directory:
+
+- **[Sequence Diagram](docs/diagrams/Sequence_Diagram.png)**: This diagram shows the end-to-end flow of a message through the system.
+
+- **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: This diagram illustrates the operational flow and processes of CipherMQ.
+
+To view the diagrams, open the PNG files in the `docs/diagrams` directory. 
+
+## Future Improvements
+- Add TLS support for secure client-server communication.
+- Implement client authentication (e.g., JWT or OAuth).
+- Enable persistent message storage (e.g., using SQLite or another database).
+- Support standard protocols like AMQP or MQTT.
+- Scale with distributed servers (e.g., inspired by Kafka or RabbitMQ).
 
 ## Contributing
-Guidelines on how to contribute to this project will be published soon.
+Contributions are welcome! Please:
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/your-feature`).
+3. Commit changes (`git commit -m 'Add your feature'`).
+4. Push to the branch (`git push origin feature/your-feature`).
+5. Open a pull request.
+
+For major changes, please open an issue to discuss your ideas first.
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed add licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
