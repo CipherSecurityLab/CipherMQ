@@ -132,9 +132,9 @@ To view the diagrams, open the PNG files in the `docs/diagrams` directory.
 ## Future Improvements
 - Add TLS support for secure client-server communication.
 - Implement client authentication (e.g., JWT or OAuth).
-- Enable persistent message storage (e.g., using SQLite or another database).
+- Enable persistent message storage.
 - Support standard protocols like AMQP or MQTT.
-- Scale with distributed servers (e.g., inspired by Kafka or RabbitMQ).
+- Scale with distributed servers.
 
 ## Contributing
 Contributions are welcome! Please:
