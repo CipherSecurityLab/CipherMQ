@@ -8,12 +8,12 @@
 ![Rust](https://img.shields.io/badge/Rust-1.56%2B-orange.svg)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
 
-**CipherMQ** is a secure message broker system designed to transmit encrypted messages between senders and receivers using a push-based architecture. It leverages hybrid encryption (RSA + AES-GCM) to ensure message confidentiality and authenticity. The server temporarily holds messages in memory (without persistent storage except for logs) and routes them through exchanges and queues to connected consumers.
+**CipherMQ** is a secure message broker system designed to transmit encrypted messages between senders and receivers using a push-based architecture. It leverages hybrid encryption (RSA + AES-GCM) to ensure message confidentiality and authenticity. The system guarantees **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms. Messages are temporarily held in memory (without persistent storage except for logs and receiver output) and routed through exchanges and queues to connected consumers.
 
-This project consists of three main components:
+The project consists of three main components:
 - **Server** (`main.rs`): A Rust-based message broker for receiving, routing, and delivering messages.
-- **Sender** (`Sender.py`): A Python script that encrypts and sends messages to the server.
-- **Receiver** (`Receiver.py`): A Python script that receives, decrypts, and stores messages.
+- **Sender** (`Sender.py`): A Python script that encrypts and sends messages to the server with retry logic for guaranteed delivery.
+- **Receiver** (`Receiver.py`): A Python script that receives, decrypts, deduplicates, and stores messages with acknowledgment retries.
 
 Initial architecture of CipherMQ is as follows:
 
@@ -34,9 +34,11 @@ Initial architecture of CipherMQ is as follows:
 
 ## Features
 - **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
+- **Zero Message Loss**: Sender retries until server acknowledgment (`ACK <message_id>`), and server retries delivery until receiver acknowledgment (`ack <message_id>`).
+- **Exactly-Once Delivery**: Receiver deduplicates messages using `message_id` to prevent reprocessing.
+- **Clear Acknowledgment Logging**: Both sender and receiver log ACKs for visibility (e.g., `✅ [SENDER] Server ACK received` and `✅ [RECEIVER] Server confirmed ACK`).
 - **Push-Based Messaging**: Messages are actively delivered to connected consumers.
 - **Flexible Routing**: Supports exchanges and queues with routing keys for message delivery.
-- **Message Acknowledgment**: Ensures reliable delivery with acknowledgment (`ack`) mechanism.
 - **Asynchronous Processing**: Uses Tokio for high-performance, concurrent connection handling.
 - **Thread-Safe Data Structures**: Leverages `DashMap` for safe multi-threaded operations.
 
@@ -118,7 +120,7 @@ CipherMQ architecture is based on a message broker model with the following comp
 - **Receiver** (`Receiver.py`): Receives, decrypts, and stores messages in a JSON file.
 - **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
 
-For a detailed breakdown of the architecture, including components, interactions, and server details, refer to the [CipherMQ Project Architecture](docs/Project_Architecture.markdown) document in the `docs` directory.
+For a detailed breakdown of the architecture, including components, interactions, and server details, refer to the [CipherMQ Project Architecture](docs/Project_Architecture.md) document in the `docs` directory.
 
 ## Diagrams
 The following diagrams illustrate the architecture and operational flow of CipherMQ. They are located in the `docs/diagrams` directory:
