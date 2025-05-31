@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use tokio::time::{timeout, Duration};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -48,7 +49,7 @@ struct ServerState {
     message_status: DashMap<String, MessageStatus>, // message_id -> status
 }
 
-// Initializes server state with thread-safe DashMaps for concurrent queue, exchange, and message status management
+// Initializes server state with thread-safe DashMaps
 impl ServerState {
     fn new() -> Self {
         ServerState {
@@ -98,21 +99,20 @@ impl ServerState {
         }
     }
 
-    // Publishes a message to the specified exchange, routes it to the appropriate queue based on the routing key, and notifies connected consumers
-    fn publish(&self, exchange_name: &str, routing_key: &str, mut message: EncryptedInputData) {
+    // Publishes a message and returns a Result
+    fn publish(&self, exchange_name: &str, routing_key: &str, mut message: EncryptedInputData) -> Result<(), String> {
         if message.message_id.is_empty() {
             message.message_id = Uuid::new_v4().to_string();
         }
-        self.message_status
-            .insert(message.message_id.clone(), MessageStatus::Sent);
-
+        if self.message_status.contains_key(&message.message_id) {
+            return Err(format!("Duplicate message ID '{}'", message.message_id));
+        }
         if let Some(exchange) = self.exchanges.get(exchange_name) {
             if let Some(queue_name) = exchange.bindings.get(routing_key) {
                 if let Some(mut queue) = self.queues.get_mut(queue_name) {
-                    queue
-                        .messages
-                        .push_back((message.clone(), MessageStatus::Sent));
-                    // Send to connected consumers
+                    queue.messages.push_back((message.clone(), MessageStatus::Sent));
+                    self.message_status
+                        .insert(message.message_id.clone(), MessageStatus::Sent);
                     for consumer in &queue.consumers {
                         if consumer
                             .send((message.message_id.clone(), message.clone()))
@@ -125,14 +125,15 @@ impl ServerState {
                         "Published message {} to queue '{}' (name: {}) via exchange '{}' (name: {})",
                         message.message_id, queue_name, queue.name, exchange_name, exchange.name
                     );
+                    return Ok(());
                 } else {
-                    warn!("Queue '{}' not found", queue_name);
+                    return Err(format!("Queue '{}' not found", queue_name));
                 }
             } else {
-                warn!("No binding found for routing key '{}'", routing_key);
+                return Err(format!("No binding found for routing key '{}'", routing_key));
             }
         } else {
-            warn!("Exchange '{}' not found", exchange_name);
+            return Err(format!("Exchange '{}' not found", exchange_name));
         }
     }
 
@@ -144,7 +145,6 @@ impl ServerState {
     ) {
         if let Some(mut queue) = self.queues.get_mut(queue_name) {
             queue.consumers.push(tx);
-            // Send existing messages to the new consumer
             for (message, status) in &queue.messages {
                 if matches!(status, MessageStatus::Sent) {
                     if let Some(consumer) = queue.consumers.last() {
@@ -166,7 +166,6 @@ impl ServerState {
             *status = MessageStatus::Acknowledged;
             info!("Message {} acknowledged", message_id);
 
-            // Remove message from queues
             for mut queue_entry in self.queues.iter_mut() {
                 let queue = queue_entry.value_mut();
                 queue.messages.retain(|(msg, _)| msg.message_id != message_id);
@@ -176,7 +175,7 @@ impl ServerState {
         }
     }
 
-    // Manual message consum
+    // Manual message consume
     fn consume(&self, queue_name: &str) -> Option<(String, EncryptedInputData)> {
         if let Some(mut queue) = self.queues.get_mut(queue_name) {
             if let Some((message, status)) = queue.messages.pop_front() {
@@ -189,23 +188,53 @@ impl ServerState {
         }
         None
     }
+
+    // Retry unacknowledged messages
+    async fn retry_unacknowledged(&self) {
+        let timeout_duration = Duration::from_secs(30); // Retry after 30 seconds
+        loop {
+            tokio::time::sleep(timeout_duration).await;
+            for entry in self.message_status.iter() {
+                let (message_id, status) = entry.pair();
+                if matches!(status, MessageStatus::Delivered) {
+                    for mut queue_entry in self.queues.iter_mut() {
+                        let queue = queue_entry.value_mut();
+                        if let Some((message, _)) = queue
+                            .messages
+                            .iter()
+                            .find(|(msg, _)| msg.message_id == *message_id)
+                        {
+                            for consumer in &queue.consumers {
+                                if consumer
+                                    .send((message.message_id.clone(), message.clone()))
+                                    .is_err()
+                                {
+                                    warn!("Failed to retry message {} to consumer", message_id);
+                                }
+                            }
+                            info!("Retried message {} for queue '{}'", message_id, queue.name);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-// Asynchronously handles client commands and message delivery using tokio's select! macro, with mpsc channels for consumer notifications
+// Handles client commands and message delivery
 async fn handle_client(mut stream: TcpStream, state: Arc<ServerState>) {
     let mut buffer = [0; 1024];
     let (tx, mut rx) = mpsc::unbounded_channel::<(String, EncryptedInputData)>();
 
     loop {
         tokio::select! {
-            // Receive message from client
-            result = stream.read(&mut buffer) => {
+            result = timeout(Duration::from_secs(1), stream.read(&mut buffer)) => {
                 match result {
-                    Ok(n) if n == 0 => {
+                    Ok(Ok(n)) if n == 0 => {
                         info!("Client disconnected");
                         return;
                     }
-                    Ok(n) => {
+                    Ok(Ok(n)) => {
                         let request = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
                         let parts: Vec<&str> = request.splitn(2, ' ').collect();
 
@@ -247,8 +276,20 @@ async fn handle_client(mut stream: TcpStream, state: Arc<ServerState>) {
                                     let message_str = args[2..].join(" ");
                                     match serde_json::from_str::<EncryptedInputData>(&message_str) {
                                         Ok(message) => {
-                                            state.publish(args[0], args[1], message);
-                                            stream.write_all(b"Message published\n").await.unwrap();
+                                            match state.publish(args[0], args[1], message.clone()) {
+                                                Ok(()) => {
+                                                    stream
+                                                        .write_all(format!("ACK {}\n", message.message_id).as_bytes())
+                                                        .await
+                                                        .unwrap();
+                                                }
+                                                Err(e) => {
+                                                    stream
+                                                        .write_all(format!("Error: {}\n", e).as_bytes())
+                                                        .await
+                                                        .unwrap();
+                                                }
+                                            }
                                         }
                                         Err(e) => {
                                             stream
@@ -287,7 +328,10 @@ async fn handle_client(mut stream: TcpStream, state: Arc<ServerState>) {
                             "ack" => {
                                 if !args.is_empty() {
                                     state.acknowledge(args[0]);
-                                    stream.write_all(b"Message acknowledged\n").await.unwrap();
+                                    stream
+                                        .write_all(format!("ACK_CONFIRMED {}\n", args[0]).as_bytes())
+                                        .await
+                                        .unwrap();
                                 } else {
                                     stream.write_all(b"Missing message ID\n").await.unwrap();
                                 }
@@ -297,20 +341,25 @@ async fn handle_client(mut stream: TcpStream, state: Arc<ServerState>) {
                             }
                         }
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         error!("Error reading from stream: {}", e);
                         return;
                     }
+                    Err(_) => {
+                        continue;
+                    }
                 }
             }
-            // Send message to client
             Some((message_id, message)) = rx.recv() => {
                 let message_str = serde_json::to_string(&message).unwrap();
-                if stream.write_all(format!("Message: {} {}\n", message_id, message_str).as_bytes()).await.is_err() {
+                if stream
+                    .write_all(format!("Message: {} {}\n", message_id, message_str).as_bytes())
+                    .await
+                    .is_err()
+                {
                     warn!("Failed to send message to client");
                     return;
                 }
-                // Update status to Delivered
                 state.message_status.insert(message_id.clone(), MessageStatus::Delivered);
             }
         }
@@ -325,10 +374,14 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:5672").await.unwrap();
     info!("Message Broker running on 127.0.0.1:5672");
 
-    // Sets up a default queue and exchange for basic message routing, bound with a default routing key
     state.declare_queue("default_queue");
     state.declare_exchange("default_exchange");
     state.bind_queue("default_exchange", "default_queue", "default_key");
+
+    let state_clone = Arc::clone(&state);
+    tokio::spawn(async move {
+        state_clone.retry_unacknowledged().await;
+    });
 
     while let Ok((stream, addr)) = listener.accept().await {
         info!("New connection from {}", addr);
