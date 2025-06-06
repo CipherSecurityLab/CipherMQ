@@ -57,13 +57,13 @@ cd CipherMQ
 ```
 ### 2. Set up the Rust server
 ```bash
-cd src
+cd server
 cargo build --release
 ```
 ### 3. Generate RSA Keys
 Run the provided `RSA.py` script to generate public and private keys:
 ```bash
-cd src/client
+cd client
 pip install pycryptodome
 python RSA.py
 ```
@@ -82,7 +82,7 @@ openssl rsa -in receiver_private.pem -pubout -out receiver_public.pem
 ## Usage
 ### 1. Run the Server
    ```bash
-   cd src
+   cd server
    cargo run --release
    ```
    The server runs on `127.0.0.1:5672` and initializes a default queue (`default_queue`) and exchange (`default_exchange`) with the routing key `default_key`.
@@ -90,7 +90,7 @@ openssl rsa -in receiver_private.pem -pubout -out receiver_public.pem
 ### 2. Run the Receiver
 Start the receiver to listen for messages:
 ```bash
-cd src/client
+cd client
 python Receiver.py
 ```
 The receiver connects to the server, subscribes to `default_queue`, decrypts messages, and stores them in `received_messages.json`.
@@ -98,7 +98,7 @@ The receiver connects to the server, subscribes to `default_queue`, decrypts mes
 ### 3. Run the Sender
 Send a sample message:
 ```bash
-cd src/client
+cd client
 python Sender.py
 ```
 The sender encrypts a test message ("This is a hybrid test message.") and sends it to the server via `default_exchange` and `default_key`.
