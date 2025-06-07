@@ -142,7 +142,7 @@ To view the diagrams, open the PNG files in the `docs/diagrams` directory.
 
 We welcome contributions! Before submitting a pull request, please:
 
-1. Read our [Contributor License Agreement](CLA.md)
+1. Read our [Contributor License Agreement (CLA)](CLA.md)
 2. Check the checkbox in the PR template to confirm your agreement
 3. Follow our coding standards and include tests
 
