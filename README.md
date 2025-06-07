@@ -139,14 +139,14 @@ To view the diagrams, open the PNG files in the `docs/diagrams` directory.
 - Scale with distributed servers.
 
 ## Contributing
-Contributions are welcome! Please:
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/your-feature`).
-3. Commit changes (`git commit -m 'Add your feature'`).
-4. Push to the branch (`git push origin feature/your-feature`).
-5. Open a pull request.
 
-For major changes, please open an issue to discuss your ideas first.
+We welcome contributions! Before submitting a pull request, please:
+
+1. Read our [Contributor License Agreement](CLA.md)
+2. Check the checkbox in the PR template to confirm your agreement
+3. Follow our coding standards and include tests
+
+For major changes, please open an issue first to discuss your proposed changes.
 
 ## License
 This project is licensed add licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
