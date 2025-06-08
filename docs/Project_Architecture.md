@@ -3,7 +3,7 @@
 ## 1. Introduction
 **CipherMQ** is a secure message broker system designed to transmit encrypted messages between senders and receivers with **zero message loss** and **exactly-once delivery**. It uses a push-based architecture, storing messages in memory (without persistent storage except for logs and receiver output). The system employs hybrid encryption (RSA + AES-GCM) and robust acknowledgment mechanisms to ensure reliability. The project consists of:
 - **Server** (`main.rs`): The core message broker for routing and delivering messages.
-- **Sender** (`Sender.py`): Encrypts and sends messages with retry logic.
+- **Sender** (`Sender.py`): Encrypts and sends messages in batches with retry logic.
 - **Receiver** (`Receiver.py`): Receives, decrypts, deduplicates, and stores messages.
 
 This document details the architecture, focusing on the server, client interactions, and acknowledgment mechanisms.
@@ -25,16 +25,11 @@ The server is the core of CipherMQ, handling message routing and delivery.
 
 #### 3.1.1. Data Structures
 - **ServerState**:
-  - `queues: DashMap<String, Queue>`: Thread-safe map for queues.
-  - `exchanges: DashMap<String, Exchange>`: Map for exchanges.
-  - `message_status: DashMap<String, MessageStatus>`: Tracks message statuses (`Sent`, `Delivered`, `Acknowledged`).
-- **Queue**:
-  - `name: String`: Unique queue name.
-  - `messages: VecDeque<(EncryptedInputData, MessageStatus)>`: Stores messages and statuses.
-  - `consumers: Vec<mpsc::UnboundedSender>`: Channels for sending messages to consumers.
-- **Exchange**:
-  - `name: String`: Unique exchange name.
-  - `bindings: HashMap<String, String>`: Maps routing keys to queue names.
+  - `queues: HashMap<String, Vec<(String, EncryptedInputData)>>`: Stores messages for each queue.
+  - `bindings: HashMap<String, Vec<String>>`: Maps exchanges to queues.
+  - `exchanges: HashMap<String, Vec<String>>`: Stores exchange definitions.
+  - `consumers: HashMap<String, Vec<mpsc::UnboundedSender>>`: Tracks consumer channels.
+  - `message_status: HashMap<String, MessageStatus>`: Tracks message statuses (`Sent`, `Delivered`, `Acknowledged`).
 - **EncryptedInputData**:
   - `message_id: String`: Unique identifier (UUID).
   - `ciphertext: String`: Encrypted message content.
@@ -63,7 +58,7 @@ The server is the core of CipherMQ, handling message routing and delivery.
 #### 3.1.4. Architectural Features
 - **Reliability**: Retries unacknowledged messages and checks for duplicates.
 - **Logging**: Logs message statuses (e.g., `Message <message_id> acknowledged`).
-- **Concurrency**: Uses `DashMap` for thread-safe operations.
+- **Concurrency**: Uses `HashMap` with `Mutex` for thread-safe operations.
 
 ### 3.2. Sender (`Sender.py`)
 The sender encrypts and sends messages with retry logic.
@@ -72,15 +67,18 @@ The sender encrypts and sends messages with retry logic.
 - **encrypt_message_hybrid**:
   - Generates a 16-byte session key, encrypts it with RSA (`PKCS1_OAEP`), and encrypts the message with AES-GCM.
   - Outputs JSON with `message_id`, `enc_session_key`, `nonce`, `tag`, and `ciphertext`.
-- **send_message**:
-  - Sends messages via TCP, retries up to 3 times (5-second timeout) until `ACK <message_id>` is received.
+- **send_message_batch**:
+  - Sends a batch of messages via TCP, retries up to 3 times (5-second timeout) until `ACK <message_id>` is received for each message.
   - Stores messages in `pending_messages` until acknowledged.
   - Logs clearly (e.g., `✅ [SENDER] Server ACK received for message <message_id>`).
+- **collect_and_send_messages**:
+  - Collects messages into batches (up to 10 messages or 1-second timeout).
+  - Sends all queued messages in batches, ensuring no messages are missed.
 - **Error Handling**: Reports cryptographic or network errors.
 
 #### 3.2.2. Architectural Features
-- **Reliability**: Retries ensure no message loss.
-- **Logging**: Detailed logs for sending and ACK receipt.
+- **Reliability**: Retries and batch processing ensure no message loss.
+- **Logging**: Detailed logs for sending, batching, and ACK receipt.
 - **Deduplication**: Uses UUID to prevent duplicate processing on server.
 
 ### 3.3. Receiver (`Receiver.py`)
@@ -95,7 +93,7 @@ The receiver retrieves, decrypts, and stores messages.
   - Sends `ack <message_id>` with retries until `ACK_CONFIRMED <message_id>` is received.
   - Logs clearly (e.g., `✅ [RECEIVER] Server confirmed ACK for message <message_id>`).
 - **process_messages**:
-  - Stores decrypted messages in `received_messages.json` with timestamps.
+  - Stores decrypted messages in `received_messages.jsonl` with timestamps.
 - **signal_handler**: Ensures graceful shutdown on SIGINT.
 
 #### 3.3.2. Architectural Features
@@ -115,12 +113,12 @@ The receiver retrieves, decrypts, and stores messages.
 1. **Key Generation**:
    - `RSA.py` or OpenSSL generates public/private keys.
 2. **Sender to Server**:
-   - Sender encrypts and sends message with `message_id`.
-   - Server queues message, sends `ACK <message_id>`.
+   - Sender encrypts and sends messages in batches with `message_id`s.
+   - Server queues messages, sends `ACK <message_id>` for each.
    - Sender logs: `✅ [SENDER] Server ACK received for message <message_id>`.
 3. **Server to Receiver**:
-   - Server routes message to queue and sends to consumers.
-   - Receiver deduplicates, decrypts, and stores message in `received_messages.json`.
+   - Server routes messages to queue and sends to consumers.
+   - Receiver deduplicates, decrypts, and stores messages in `received_messages.jsonl`.
    - Receiver sends `ack <message_id>`, logs: `📤 [RECEIVER] Sending ACK for message <message_id>`.
    - Server sends `ACK_CONFIRMED <message_id>`, receiver logs: `✅ [RECEIVER] Server confirmed ACK`.
 4. **Message Removal**:
@@ -141,10 +139,10 @@ The receiver retrieves, decrypts, and stores messages.
 - **Retry Logic**: Server retries unacknowledged `Delivered` messages every 30 seconds.
 
 ## 6. Logging and Verification
-- **Sender**: Logs sending, ACK receipt, and removal from `pending_messages`.
+- **Sender**: Logs sending, batching, ACK receipt, and removal from `pending_messages`.
 - **Receiver**: Logs message receipt, decryption, ACK sending, and confirmation.
 - **Server**: Logs message statuses via `tracing`.
 - **Verification**:
   - Check `pending_messages` (sender) to ensure ACK receipt.
-  - Check `received_messages.json` (receiver) for processed messages.
+  - Check `received_messages.jsonl` (receiver) for processed messages.
   - Check server logs for `Acknowledged` status.
