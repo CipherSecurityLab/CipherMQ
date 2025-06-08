@@ -1,9 +1,8 @@
-# CipherMQ: A new generation secure message broker
+# CipherMQ: A New Generation Secure Message Broker
 
 <p align="center">
 <img src="./docs/CipherMQ.jpg" width="350" height="350">
 </p>
-
 ![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Rust](https://img.shields.io/badge/Rust-1.56%2B-orange.svg)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
@@ -12,7 +11,7 @@
 
 The project consists of three main components:
 - **Server** (`main.rs`): A Rust-based message broker for receiving, routing, and delivering messages.
-- **Sender** (`Sender.py`): A Python script that encrypts and sends messages to the server with retry logic for guaranteed delivery.
+- **Sender** (`Sender.py`): A Python script that encrypts and sends messages to the server in batches, with retry logic for guaranteed delivery of all queued messages.
 - **Receiver** (`Receiver.py`): A Python script that receives, decrypts, deduplicates, and stores messages with acknowledgment retries.
 
 Initial architecture of CipherMQ is as follows:
@@ -36,6 +35,7 @@ Initial architecture of CipherMQ is as follows:
 - **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
 - **Zero Message Loss**: Sender retries until server acknowledgment (`ACK <message_id>`), and server retries delivery until receiver acknowledgment (`ack <message_id>`).
 - **Exactly-Once Delivery**: Receiver deduplicates messages using `message_id` to prevent reprocessing.
+- **Reliable Batch Processing**: Sender collects and sends all queued messages in batches, ensuring no messages are missed.
 - **Clear Acknowledgment Logging**: Both sender and receiver log ACKs for visibility (e.g., `✅ [SENDER] Server ACK received` and `✅ [RECEIVER] Server confirmed ACK`).
 - **Push-Based Messaging**: Messages are actively delivered to connected consumers.
 - **Flexible Routing**: Supports exchanges and queues with routing keys for message delivery.
@@ -44,10 +44,9 @@ Initial architecture of CipherMQ is as follows:
 
 ## Prerequisites
 To run CipherMQ, you need:
-- [Rust](https://www.rust-lang.org/) : Version 1.56 or higher (for the server). 
-- [Python](https://www.python.org/) : Version 3.8 or higher (for Sender and Receiver).
-- [Key Generation](https://slproweb.com/products/Win32OpenSSL.html) : Use OpenSSL or the provided `RSA.py` script to generate keys.
-
+- [Rust](https://www.rust-lang.org/): Version 1.56 or higher (for the server).
+- [Python](https://www.python.org/): Version 3.8 or higher (for Sender and Receiver).
+- [Key Generation](https://slproweb.com/products/Win32OpenSSL.html): Use OpenSSL or the provided `RSA.py` script to generate keys.
 
 ## Installation
 ### 1. Clone the Repository
@@ -55,7 +54,7 @@ To run CipherMQ, you need:
 git clone https://github.com/fozouni/CipherMQ.git
 cd CipherMQ
 ```
-### 2. Set up the Rust server
+### 2. Set up the Rust Server
 ```bash
 cd src
 cargo build --release
@@ -81,11 +80,11 @@ openssl rsa -in receiver_private.pem -pubout -out receiver_public.pem
 
 ## Usage
 ### 1. Run the Server
-   ```bash
-   cd src
-   cargo run --release
-   ```
-   The server runs on `127.0.0.1:5672` and initializes a default queue (`default_queue`) and exchange (`default_exchange`) with the routing key `default_key`.
+```bash
+cd src
+cargo run --release
+```
+The server runs on `127.0.0.1:5672` and initializes a default queue (`default_queue`) and exchange (`default_exchange`) with the routing key `default_key`.
 
 ### 2. Run the Receiver
 Start the receiver to listen for messages:
@@ -93,43 +92,32 @@ Start the receiver to listen for messages:
 cd src/client
 python Receiver.py
 ```
-The receiver connects to the server, subscribes to `default_queue`, decrypts messages, and stores them in `received_messages.json`.
+The receiver connects to the server, subscribes to `default_queue`, decrypts messages, and stores them in `received_messages.jsonl`.
 
 ### 3. Run the Sender
-Send a sample message:
+Send a batch of sample messages:
 ```bash
 cd src/client
 python Sender.py
 ```
-The sender encrypts a test message ("This is a hybrid test message.") and sends it to the server via `default_exchange` and `default_key`.
+The sender encrypts messages (e.g., "This is a test hybrid message."), collects all queued messages, and sends them in batches to the server via `default_exchange` and `default_key`. It ensures all messages are sent, even if they exceed the initial batch size.
 
-### 4. Supported Client Commands
-Clients communicate with the server using a simple TCP-based text protocol. Supported commands:
-- `declare_queue <queue_name>`: Creates a new queue.
-- `declare_exchange <exchange_name>`: Creates a new exchange.
-- `bind <exchange_name> <queue_name> <routing_key>`: Binds a queue to an exchange with a routing key.
-- `publish <exchange_name> <routing_key> <message_json>`: Publishes an encrypted message.
-- `consume <queue_name>`: Subscribes to a queue for message delivery.
-- `fetch <queue_name>`: Manually retrieves a message from a queue.
-- `ack <message_id>`: Acknowledges a message.
 
 ## Architecture
 CipherMQ architecture is based on a message broker model with the following components:
 - **Server** (`main.rs`): Manages message routing and delivery using exchanges and queues.
-- **Sender** (`Sender.py`): Encrypts messages using hybrid encryption and sends them to the server.
-- **Receiver** (`Receiver.py`): Receives, decrypts, and stores messages in a JSON file.
+- **Sender** (`Sender.py`): Encrypts messages using hybrid encryption and sends them in batches, ensuring all queued messages are delivered.
+- **Receiver** (`Receiver.py`): Receives, decrypts, and stores messages in a JSONL file.
 - **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
 
 For a detailed breakdown of the architecture, including components, interactions, and server details, refer to the [CipherMQ Project Architecture](docs/Project_Architecture.md) document in the `docs` directory.
 
 ## Diagrams
 The following diagrams illustrate the architecture and operational flow of CipherMQ. They are located in the `docs/diagrams` directory:
+- **[Sequence Diagram](docs/diagrams/Sequence_diagram.png)**: Shows the end-to-end flow of a message through the system.
+- **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: Illustrates the operational flow and processes of CipherMQ.
 
-- **[Sequence Diagram](docs/diagrams/Sequence_diagram.png)**: This diagram shows the end-to-end flow of a message through the system.
-
-- **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: This diagram illustrates the operational flow and processes of CipherMQ.
-
-To view the diagrams, open the PNG files in the `docs/diagrams` directory. 
+To view the diagrams, open the PNG files in the `docs/diagrams` directory.
 
 ## Future Improvements
 - Add TLS support for secure client-server communication.
@@ -147,6 +135,5 @@ We welcome contributions! Before submitting a pull request, please:
 3. Follow our coding standards and include tests
 
 For major changes, please open an issue first to discuss your proposed changes.
-
 ## License
-This project is licensed add licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

@@ -1,0 +1,7 @@
+{
+    "exchange_name": "ciphermq1_exchange",
+    "queue_name": "ciphermq1_queue",
+    "routing_key": "ciphermq1_key",
+    "server_address": "127.0.0.1",
+    "server_port": 5672
+  }
