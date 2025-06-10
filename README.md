@@ -15,7 +15,7 @@ The project consists of three main components:
 - **Sender** (`Sender.py`): A Python script that encrypts and sends messages to the server in batches, with retry logic for guaranteed delivery of all queued messages.
 - **Receiver** (`Receiver.py`): A Python script that receives, decrypts, deduplicates, and stores messages with acknowledgment retries.
 
-Initial architecture of CipherMQ is as follows:
+You can see some benchmarks regarding CipherMQ at [benchmark_report](Benchmarks/benchmark_report.md). Initial architecture of CipherMQ is as follows:
 
 <p align="center">
 <img src="./docs/diagrams/Diagram.png">
