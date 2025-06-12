@@ -242,42 +242,45 @@ impl ServerState {
                 (sent, delivered, acknowledged)
             },
         );
+// --------------------- Start Calculate average times ----------------------------------------------
 
-        // Calculate average times for publish-to-ack and delivery-to-ack
-        let mut publish_to_ack_times: Vec<f64> = Vec::new();
-        let mut delivery_to_ack_times: Vec<f64> = Vec::new();
-        for entry in self.message_status.iter() {
-            let status = entry.value();
-            if let (Some(sent_time), Some(ack_time)) = (status.sent_time, status.acknowledged_time) {
-                publish_to_ack_times.push(ack_time.duration_since(sent_time).as_secs_f64());
-            }
-            if let (Some(delivered_time), Some(ack_time)) = (status.delivered_time, status.acknowledged_time) {
-                delivery_to_ack_times.push(ack_time.duration_since(delivered_time).as_secs_f64());
-            }
-        }
-        let avg_publish_to_ack = if !publish_to_ack_times.is_empty() {
-            publish_to_ack_times.iter().sum::<f64>() / publish_to_ack_times.len() as f64
-        } else {
-            0.0
-        };
-        let avg_delivery_to_ack = if !delivery_to_ack_times.is_empty() {
-            delivery_to_ack_times.iter().sum::<f64>() / delivery_to_ack_times.len() as f64
-        } else {
-            0.0
-        };
+        // // Calculate average times for publish-to-ack and delivery-to-ack
+        // let mut publish_to_ack_times: Vec<f64> = Vec::new();
+        // let mut delivery_to_ack_times: Vec<f64> = Vec::new();
+        // for entry in self.message_status.iter() {
+        //     let status = entry.value();
+        //     if let (Some(sent_time), Some(ack_time)) = (status.sent_time, status.acknowledged_time) {
+        //         publish_to_ack_times.push(ack_time.duration_since(sent_time).as_secs_f64());
+        //     }
+        //     if let (Some(delivered_time), Some(ack_time)) = (status.delivered_time, status.acknowledged_time) {
+        //         delivery_to_ack_times.push(ack_time.duration_since(delivered_time).as_secs_f64());
+        //     }
+        // }
+        // let avg_publish_to_ack = if !publish_to_ack_times.is_empty() {
+        //     publish_to_ack_times.iter().sum::<f64>() / publish_to_ack_times.len() as f64
+        // } else {
+        //     0.0
+        // };
+        // let avg_delivery_to_ack = if !delivery_to_ack_times.is_empty() {
+        //     delivery_to_ack_times.iter().sum::<f64>() / delivery_to_ack_times.len() as f64
+        // } else {
+        //     0.0
+        // };
 
-        // Collect request time statistics, including average and total times
-        let request_time_stats: Vec<(String, f64, usize, f64)> = self
-            .request_times
-            .iter()
-            .map(|entry| {
-                let times = entry.value();
-                let count = times.len();
-                let sum_time = times.iter().sum::<f64>();
-                let avg_time = if count > 0 { sum_time / count as f64 } else { 0.0 };
-                (entry.key().clone(), avg_time, count, sum_time)
-            })
-            .collect();
+        // // Collect request time statistics, including average and total times
+        // let request_time_stats: Vec<(String, f64, usize, f64)> = self
+        //     .request_times
+        //     .iter()
+        //     .map(|entry| {
+        //         let times = entry.value();
+        //         let count = times.len();
+        //         let sum_time = times.iter().sum::<f64>();
+        //         let avg_time = if count > 0 { sum_time / count as f64 } else { 0.0 };
+        //         (entry.key().clone(), avg_time, count, sum_time)
+        //     })
+        //     .collect();
+
+// --------------------- End Calculate average times ----------------------------------------------
 
         // Return statistics as a JSON object
         json!({
@@ -291,9 +294,9 @@ impl ServerState {
             "total_exchanges": self.exchanges.len(),
             "total_bindings": self.bindings.iter().map(|entry| entry.value().len()).sum::<usize>(),
             "connected_clients": *self.connected_clients.read().await,
-            "request_times_avg_seconds": request_time_stats,
-            "avg_publish_to_ack_seconds": avg_publish_to_ack,
-            "avg_delivery_to_ack_seconds": avg_delivery_to_ack
+            // "request_times_avg_seconds": request_time_stats, //Calculate average times
+            // "avg_publish_to_ack_seconds": avg_publish_to_ack, //Calculate average times
+            // "avg_delivery_to_ack_seconds": avg_delivery_to_ack //Calculate average times
         })
     }
 }
