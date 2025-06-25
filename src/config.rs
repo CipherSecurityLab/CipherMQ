@@ -3,7 +3,7 @@ use std::fs;
 
 #[derive(Deserialize)]
 pub struct Config {
-    pub connection_type: String, // "tcp" or "tls"
+    pub connection_type: String, 
     pub address: String,
     pub cert_path: Option<String>,
     pub key_path: Option<String>,
