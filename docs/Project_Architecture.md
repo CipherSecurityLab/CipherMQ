@@ -21,7 +21,7 @@ CipherMQ operates as a message broker with **queues** and **exchanges**, support
 - **Flexible Routing**: Supports exchanges, queues, and routing keys.
 - **Clear Logging**: Detailed logs for ACKs (e.g., `✅ [SENDER] Server ACK received`, `✅ [RECEIVER] Server confirmed ACK`).
 
-The architecture is illustrated in the [Sequence Diagram](docs/diagrams/Sequence_diagram.png) and [Activity Diagram](docs/diagrams/Activity_Diagram.png) in `docs/diagrams`.
+The architecture is illustrated in the [Sequence Diagram](diagrams/Sequence_diagram.png) and [Activity Diagram](diagrams/Activity_Diagram.png) in `docs/diagrams`.
 
 ## 3. Architectural Components
 
