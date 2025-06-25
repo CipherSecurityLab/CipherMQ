@@ -44,16 +44,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
         }
-        "tcp" => {
-            loop {
-                let (stream, addr) = listener.accept().await?;
-                info!("New TCP connection from {}", addr);
-                let state = state.clone();
-                tokio::spawn(async move {
-                    handle_client(stream, state).await;
-                });
-            }
-        }
+// ---------------------------- TCP ---------------------------------------------
+        // "tcp" => {
+        //     loop {
+        //         let (stream, addr) = listener.accept().await?;
+        //         info!("New TCP connection from {}", addr);
+        //         let state = state.clone();
+        //         tokio::spawn(async move {
+        //             handle_client(stream, state).await;
+        //         });
+        //     }
+        // }
         _ => Err("Invalid connection_type in config".into()),
     }
 }
