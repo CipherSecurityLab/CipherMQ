@@ -4,14 +4,14 @@
 **CipherMQ** is a high-performance, secure message broker designed to transmit encrypted messages between senders and receivers using a push-based architecture. It ensures **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms, with messages temporarily held in memory (except for logs and receiver output). The system leverages **hybrid encryption** (RSA + AES-GCM) for message confidentiality and authenticity and **Transport Layer Security (TLS)** for secure client-server communication.
 
 This version introduces TLS support, enhancing transport-layer security, as implemented in `connection.rs` and `main.rs`, with configuration via `config.toml`. The project consists of:
-- **Server** (`main.rs`): A Rust-based message broker for routing and delivering messages over TLS or TCP.
+- **Server** (`main.rs`): A Rust-based message broker for routing and delivering messages over TLS.
 - **Sender** (`Sender.py`): A Python script that encrypts and sends messages in batches with retry logic.
 - **Receiver** (`Receiver.py`): A Python script that receives, decrypts, deduplicates, and stores messages.
 
 This document provides a comprehensive overview of the architecture, covering server, clients, TLS, encryption, and acknowledgment mechanisms.
 
 ## 2. Architecture Overview
-CipherMQ operates as a message broker with **queues** and **exchanges**, supporting both TLS and TCP connections via a text-based protocol. Key features include:
+CipherMQ operates as a message broker with **queues** and **exchanges**, supporting both TLS connections via a text-based protocol. Key features include:
 - **TLS Support**: Secures client-server communication using `tokio-rustls` (server) and Python’s `ssl` module (clients), configurable via `config.toml`.
 - **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
 - **Zero Message Loss**: Sender and server retries with acknowledgments ensure reliable delivery.
@@ -61,31 +61,16 @@ The server is the core of CipherMQ, managing message routing, delivery, and secu
 - **reset_stats**: Clears `message_status` and `request_times`.
 
 #### 3.1.3. Connection Management (`connection.rs`, `main.rs`)
-- **Protocol**: Text-based protocol over TLS or TCP (e.g., `publish <exchange> <routing_key> <message_json>`).
+- **Protocol**: Text-based protocol over TLS (e.g., `publish <exchange> <routing_key> <message_json>`).
 - **TLS Support**:
   - Uses `tokio-rustls` for TLS connections via `TlsConnection` and `TlsAcceptor`.
   - Loads certificates and keys via `load_tls_config` using `rustls-pemfile`.
   - Configured in `config.toml` with `connection_type`, `cert_path`, and `key_path`.
-- **TCP Support**: Fallback for non-TLS connections using `TcpStream`.
 - **Asynchronous Handling**: Tokio’s `TcpListener` and `tokio::select!` manage concurrent connections.
 - **Acknowledgment**:
   - Sends `ACK <message_id>` to sender after queuing.
   - Sends `ACK_CONFIRMED <message_id>` to receiver after acknowledgment.
 - **Error Handling**: Logs errors via `tracing` (e.g., `TLS handshake failed`) and sends error messages to clients.
-
-#### 3.1.4. Architectural Features
-- **Reliability**: Retries unacknowledged messages and checks for duplicates.
-- **Concurrency**: `DashMap` and `RwLock` ensure thread-safe operations.
-- **Flexibility**: Supports TLS or TCP via `config.toml`.
-- **Logging**: Detailed logs for connection, message, and ACK events.
-
-#### 3.1.5. Configuration (`config.rs`)
-- **Config Struct**:
-  - `connection_type: String`: `tls` or `tcp`.
-  - `address: String`: Listening address (e.g., `127.0.0.1:5672`).
-  - `cert_path: Option<String>`: Path to `server.crt` (TLS only).
-  - `key_path: Option<String>`: Path to `server.key` (TLS only).
-- **Loading**: Reads `config.toml` using `toml::from_str`.
 
 ### 3.2. Sender (`Sender.py`)
 The sender encrypts and sends messages in batches with retry logic.
@@ -147,19 +132,6 @@ The receiver retrieves, decrypts, and stores messages.
   1. Sender generates session key, encrypts it with receiver’s public key (`receiver_public.pem`).
   2. Message is encrypted with AES-GCM, producing `ciphertext`, `nonce`, and `tag`.
   3. Receiver decrypts session key with private key (`receiver_private.pem`) and message with AES-GCM, verifying `tag`.
-
-### 3.5. TLS Implementation
-- **Server-Side** (`connection.rs`, `main.rs`):
-  - Uses `tokio-rustls` to establish TLS connections via `TlsAcceptor`.
-  - Loads `server.crt` and `server.key` with `load_tls_config` using `rustls-pemfile`.
-  - Configured via `config.toml` (`connection_type="tls"`, `cert_path`, `key_path`).
-  - Falls back to `TcpStream` for `connection_type="tcp"`.
-- **Client-Side** (`Sender.py`, `Receiver.py`):
-  - Uses `ssl.SSLContext` with `PROTOCOL_TLS_CLIENT` and `verify_mode=ssl.CERT_REQUIRED`.
-  - Loads `server.crt` from `server_cert_path` in `config.json`.
-  - Disables hostname verification for self-signed certificates (`check_hostname=False`, `server_hostname="localhost"`).
-- **Security**: Encrypts transport layer, complementing hybrid encryption for messages.
-- **Configuration**: Dynamic switching between TLS and TCP via `config.toml`.
 
 ## 4. Component Interactions
 1. **Key and Certificate Generation**:
