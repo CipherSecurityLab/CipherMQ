@@ -17,6 +17,7 @@ You can see some benchmarks regarding CipherMQ at [benchmark_report](benchmarks/
 <p align="center">
 <img src="./docs/diagrams/Diagram.png">
 </p>
+
 ## Table of Contents
 1. [Features](#features)
 2. [Prerequisites](#prerequisites)
@@ -27,7 +28,7 @@ You can see some benchmarks regarding CipherMQ at [benchmark_report](benchmarks/
 7. [Diagrams](#diagrams)
 8. [Future Improvements](#future-improvements)
 9. [Contributing](#contributing)
-11. [License](#license)
+10. [License](#license)
 
 
 
