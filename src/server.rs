@@ -9,7 +9,7 @@ use crate::connection::Connection;
 #[instrument(skip(stream, state))]
 pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<ServerState>>) {
     state.write().await.increment_client_count().await;
-    let mut buffer = Vec::with_capacity(100096);
+    let mut buffer = Vec::with_capacity(4096);
     let (tx, mut rx) = mpsc::unbounded_channel::<(String, EncryptedInputData)>();
 
     loop {
