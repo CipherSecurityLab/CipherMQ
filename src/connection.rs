@@ -12,16 +12,17 @@ pub trait Connection: AsyncRead + AsyncWrite + Send + Sync + Unpin {
     async fn write_all(&mut self, buf: &[u8]) -> io::Result<()>;
 }
 
-#[async_trait]
-impl Connection for TcpStream {
-    async fn read_buf(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
-        AsyncReadExt::read_buf(self, buf).await
-    }
+// ----------------- TCP ----------------------------------
+// #[async_trait]
+// impl Connection for TcpStream {
+//     async fn read_buf(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
+//         AsyncReadExt::read_buf(self, buf).await
+//     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        AsyncWriteExt::write_all(self, buf).await
-    }
-}
+//     async fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+//         AsyncWriteExt::write_all(self, buf).await
+//     }
+// }
 
 pub struct TlsConnection {
     stream: tokio_rustls::server::TlsStream<TcpStream>,
