@@ -162,8 +162,7 @@ The following diagrams, located in `docs/diagrams`, illustrate CipherMQ's archit
 - **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: Details the operational flow, including TLS connection setup.
 
 ## Future Improvements
-- Implement client authentication (e.g., mTLS or JWT).
-- Add persistent message storage for durability.
+- Implement client authentication (e.g. mTLS or JWT).
 - Support standard protocols like AMQP or MQTT.
 - Enable distributed server scaling.
 
