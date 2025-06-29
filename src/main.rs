@@ -1,15 +1,16 @@
+use crate::auth::{AuthHandler, MTlsAuth};
 use crate::config::Config;
-use crate::connection::{create_listener, load_tls_config, TlsConnection};
+use crate::connection::{create_listener};
 use crate::server::handle_client;
 use crate::state::ServerState;
 use std::sync::Arc;
-use tokio_rustls::TlsAcceptor;
 use tracing::{error, info};
 
 mod state;
 mod server;
 mod connection;
 mod config;
+mod auth;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,16 +25,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "tls" => {
             let cert_path = config.cert_path.ok_or("Missing cert_path for TLS")?;
             let key_path = config.key_path.ok_or("Missing key_path for TLS")?;
-            let tls_config = load_tls_config(&cert_path, &key_path)?;
-            let acceptor = TlsAcceptor::from(Arc::new(tls_config));
+            let ca_cert_path = config.ca_cert_path.ok_or("Missing ca_cert_path for TLS")?;
+            let auth_handler = MTlsAuth::new(&cert_path, &key_path, &ca_cert_path)?;
 
             loop {
                 let (stream, addr) = listener.accept().await?;
                 info!("New TLS connection from {}", addr);
                 let state = state.clone();
-                let acceptor = acceptor.clone();
+                let auth_handler = auth_handler.clone();
                 tokio::spawn(async move {
-                    match TlsConnection::new(stream, acceptor).await {
+                    match auth_handler.authenticate(stream).await {
                         Ok(tls_stream) => {
                             handle_client(tls_stream, state).await;
                         }
@@ -44,17 +45,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
         }
-// ---------------------------- TCP ---------------------------------------------
-        // "tcp" => {
-        //     loop {
-        //         let (stream, addr) = listener.accept().await?;
-        //         info!("New TCP connection from {}", addr);
-        //         let state = state.clone();
-        //         tokio::spawn(async move {
-        //             handle_client(stream, state).await;
-        //         });
-        //     }
-        // }
         _ => Err("Invalid connection_type in config".into()),
     }
 }

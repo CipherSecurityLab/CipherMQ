@@ -1,18 +1,18 @@
-# CipherMQ Project Architecture: A Secure Message Broker with TLS and Guaranteed Delivery
+# CipherMQ Project Architecture: A Secure Message Broker with mTLS and Guaranteed Delivery
 
 ## 1. Introduction
-**CipherMQ** is a high-performance, secure message broker designed to transmit encrypted messages between senders and receivers using a push-based architecture. It ensures **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms, with messages temporarily held in memory (except for logs and receiver output). The system leverages **hybrid encryption** (RSA + AES-GCM) for message confidentiality and authenticity and **Transport Layer Security (TLS)** for secure client-server communication.
+**CipherMQ** is a high-performance, secure message broker designed to transmit encrypted messages between senders and receivers using a push-based architecture. It ensures **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms, with messages temporarily held in memory (except for logs and receiver output). The system leverages **hybrid encryption** (RSA + AES-GCM) for message confidentiality and authenticity and **Mutual Transport Layer Security (mTLS)** for secure client-server communication with two-way authentication.
 
-This version introduces TLS support, enhancing transport-layer security, as implemented in `connection.rs` and `main.rs`, with configuration via `config.toml`. The project consists of:
-- **Server** (`main.rs`): A Rust-based message broker for routing and delivering messages over TLS.
+This version introduces **mTLS support**, enhancing transport-layer security with client and server certificate verification, as implemented in `auth.rs`, `connection.rs`, and `main.rs`, with configuration via `config.toml` and `config.json`. The project consists of:
+- **Server** (`main.rs`): A Rust-based message broker for routing and delivering messages over mTLS.
 - **Sender** (`Sender.py`): A Python script that encrypts and sends messages in batches with retry logic.
 - **Receiver** (`Receiver.py`): A Python script that receives, decrypts, deduplicates, and stores messages.
 
-This document provides a comprehensive overview of the architecture, covering server, clients, TLS, encryption, and acknowledgment mechanisms.
+This document provides a comprehensive overview of the architecture, covering server, clients, mTLS, encryption, and acknowledgment mechanisms.
 
 ## 2. Architecture Overview
-CipherMQ operates as a message broker with **queues** and **exchanges**, supporting both TLS connections via a text-based protocol. Key features include:
-- **TLS Support**: Secures client-server communication using `tokio-rustls` (server) and Python’s `ssl` module (clients), configurable via `config.toml`.
+CipherMQ operates as a message broker with **queues** and **exchanges**, supporting mTLS connections via a text-based protocol. Key features include:
+- **Mutual TLS (mTLS)**: Secures client-server communication with two-way authentication using `tokio-rustls` (server) and Python’s `ssl` module (clients), configurable via `config.toml` and `config.json`.
 - **Hybrid Encryption**: Combines RSA for session key encryption and AES-GCM for message encryption and authentication.
 - **Zero Message Loss**: Sender and server retries with acknowledgments ensure reliable delivery.
 - **Exactly-Once Delivery**: Receiver deduplicates messages using `message_id`.
@@ -25,8 +25,8 @@ The architecture is illustrated in the [Sequence Diagram](diagrams/Sequence_diag
 
 ## 3. Architectural Components
 
-### 3.1. Server (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`)
-The server is the core of CipherMQ, managing message routing, delivery, and secure connections.
+### 3.1. Server (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`, `auth.rs`)
+The server is the core of CipherMQ, managing message routing, delivery, and secure connections with mTLS.
 
 #### 3.1.1. Data Structures (`state.rs`)
 - **ServerState**:
@@ -60,12 +60,12 @@ The server is the core of CipherMQ, managing message routing, delivery, and secu
 - **get_stats**: Returns JSON stats (queue sizes, consumer counts, message statuses).
 - **reset_stats**: Clears `message_status` and `request_times`.
 
-#### 3.1.3. Connection Management (`connection.rs`, `main.rs`)
-- **Protocol**: Text-based protocol over TLS (e.g., `publish <exchange> <routing_key> <message_json>`).
-- **TLS Support**:
-  - Uses `tokio-rustls` for TLS connections via `TlsConnection` and `TlsAcceptor`.
-  - Loads certificates and keys via `load_tls_config` using `rustls-pemfile`.
-  - Configured in `config.toml` with `connection_type`, `cert_path`, and `key_path`.
+#### 3.1.3. Connection Management (`connection.rs`, `main.rs`, `auth.rs`)
+- **Protocol**: Text-based protocol over mTLS (e.g., `publish <exchange> <routing_key> <message_json>`).
+- **mTLS Support**:
+  - Uses `tokio-rustls` with `WebPkiClientVerifier` for two-way authentication (`auth.rs`).
+  - Loads server certificates (`server.crt`, `server.key`) and CA certificate (`ca.crt`) for client verification via `config.toml`.
+  - Clients load `client.crt`, `client.key`, and `ca.crt` for server verification via `config.json`.
 - **Asynchronous Handling**: Tokio’s `TcpListener` and `tokio::select!` manage concurrent connections.
 - **Acknowledgment**:
   - Sends `ACK <message_id>` to sender after queuing.
@@ -77,7 +77,7 @@ The sender encrypts and sends messages in batches with retry logic.
 
 #### 3.2.1. Key Components
 - **encrypt_message_hybrid**:
-  - Generates a 16-byte session key, encrypts it with RSA (`PKCS1_OAEP`, 2048-bit key), and encrypts the message with AES-GCM.
+  - Generates a 16-byte session key, encrypts it with RSA (`PKCS1_OAEP`, 2048-bit key from `receiver_public.pem`), and encrypts the message with AES-GCM.
   - Outputs JSON with `message_id` (UUID), `enc_session_key`, `nonce`, `tag`, and `ciphertext` (all base64-encoded).
 - **send_message_batch**:
   - Sends a batch of messages, retries up to 3 times (5-second timeout) until `ACK <message_id>` is received for each message.
@@ -86,15 +86,15 @@ The sender encrypts and sends messages in batches with retry logic.
 - **collect_and_send_messages**:
   - Collects messages into batches (up to 10 messages or 1-second timeout).
   - Ensures all queued messages in `message_queue` are sent.
-- **TLS Support**:
-  - Uses `ssl.SSLContext` with `PROTOCOL_TLS_CLIENT` and loads `server.crt` for verification.
+- **mTLS Support**:
+  - Uses `ssl.SSLContext` with `PROTOCOL_TLS_CLIENT`, loads `ca.crt` for server verification, and `client.crt`, `client.key` for client authentication.
   - Disables hostname verification for self-signed certificates (`check_hostname=False`).
 - **Configuration**:
-  - Reads `config.json` for `exchange_name`, `routing_key`, `server_address`, `server_port`, and `server_cert_path`.
+  - Reads `config.json` for `exchange_name`, `routing_key`, `server_address`, `server_port`, `certificate_path`, `client_cert_path`, and `client_key_path`.
 
 #### 3.2.2. Architectural Features
 - **Reliability**: Retries and batching ensure no message loss.
-- **Security**: TLS secures transport; hybrid encryption protects messages.
+- **Security**: mTLS secures transport; hybrid encryption protects messages.
 - **Logging**: Logs encryption, sending, batching, and ACK receipt.
 - **Deduplication**: Uses UUID to prevent server-side duplicates.
 
@@ -103,7 +103,7 @@ The receiver retrieves, decrypts, and stores messages.
 
 #### 3.3.1. Key Components
 - **decrypt_message_hybrid**:
-  - Decrypts session key with RSA private key (`PKCS1_OAEP`) and message with AES-GCM.
+  - Decrypts session key with RSA private key (`PKCS1_OAEP`, `receiver_private.pem`) and message with AES-GCM.
   - Verifies integrity using `tag`.
 - **receive_messages**:
   - Subscribes to a queue, receives messages, and deduplicates using `processed_messages` set.
@@ -113,16 +113,16 @@ The receiver retrieves, decrypts, and stores messages.
   - Stores decrypted messages in `received_messages.jsonl` with `message_id` and timestamp.
   - Batches writes (up to 10 messages) for efficiency.
 - **signal_handler**: Ensures graceful shutdown on SIGINT.
-- **TLS Support**:
-  - Uses `ssl.SSLContext` to load `server.crt` and establish TLS connections.
+- **mTLS Support**:
+  - Uses `ssl.SSLContext` to load `ca.crt` for server verification and `client.crt`, `client.key` for client authentication.
   - Logs cipher (e.g., `Cipher: TLS_AES_256_GCM_SHA384`).
 - **Configuration**:
-  - Reads `config.json` for `queue_name`, `exchange_name`, `routing_key`, `server_address`, `server_port`, and `server_cert_path`.
+  - Reads `config.json` for `queue_name`, `exchange_name`, `routing_key`, `server_address`, `server_port`, `certificate_path`, `client_cert_path`, and `client_key_path`.
 
 #### 3.3.2. Architectural Features
 - **Deduplication**: Prevents reprocessing using `processed_messages`.
 - **Reliability**: Retries ACKs to ensure server cleanup.
-- **Security**: TLS and hybrid encryption ensure secure transport and message integrity.
+- **Security**: mTLS and hybrid encryption ensure secure transport and message integrity.
 - **Logging**: Logs receipt, decryption, ACKs, and file writes.
 
 ### 3.4. Hybrid Encryption
@@ -135,13 +135,15 @@ The receiver retrieves, decrypts, and stores messages.
 
 ## 4. Component Interactions
 1. **Key and Certificate Generation**:
-   - `RSA.py` or OpenSSL generates `receiver_public.pem` and `receiver_private.pem` for hybrid encryption.
-   - OpenSSL generates `server.crt` and `server.key` for TLS.
+   - OpenSSL generates `ca.crt`, `server.crt`, `server.key`, `client.crt`, and `client.key` for mTLS.
+   - OpenSSL generates `receiver_public.pem` and `receiver_private.pem` for hybrid encryption.
 2. **Sender to Server**:
+   - Sender authenticates with `client.crt` and `client.key`, verifies server with `ca.crt`.
    - Sender encrypts messages, sends batches to `ciphermq_exchange` with `ciphermq_key`.
    - Server queues messages, sends `ACK <message_id>` for each.
    - Sender logs: `✅ [SENDER] Server ACK received for message <message_id>`.
 3. **Server to Receiver**:
+   - Receiver authenticates with `client.crt` and `client.key`, verifies server with `ca.crt`.
    - Server routes messages to `ciphermq_queue` and pushes to consumers.
    - Receiver deduplicates, decrypts, and stores messages in `received_messages.jsonl`.
    - Receiver sends `ack <message_id>`, logs: `📤 [RECEIVER] Sending ACK for message <message_id>`.
@@ -178,4 +180,3 @@ The receiver retrieves, decrypts, and stores messages.
   - Check `pending_messages` (sender) for unacknowledged messages.
   - Check `received_messages.jsonl` (receiver) for processed messages.
   - Check server logs for `Acknowledged` status or errors (e.g., `TLS handshake failed`).
-

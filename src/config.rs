@@ -7,6 +7,7 @@ pub struct Config {
     pub address: String,
     pub cert_path: Option<String>,
     pub key_path: Option<String>,
+    pub ca_cert_path: Option<String>,
 }
 
 impl Config {

@@ -2,6 +2,7 @@ connection_type = "tls"
 address = "127.0.0.1:5672"
 
 
-cert_path = "server.crt"  
-key_path = "server.key"  
+cert_path = "certs/server.crt"  
+key_path = "certs/server.key"  
+ca_cert_path = "certs/ca.crt"
 

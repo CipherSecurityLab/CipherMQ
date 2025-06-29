@@ -40,9 +40,13 @@ except Exception as e:
     print(f"❌ [RECEIVER] Error loading private key: {e}")
     sys.exit(1)
 
-# Configure SSL context from config
+# Configure SSL context for mTLS
 ssl_context = ssl.SSLContext(getattr(ssl, TLS_CONFIG["protocol"]))
-ssl_context.load_verify_locations(TLS_CONFIG["certificate_path"])  # Load server certificate
+ssl_context.load_verify_locations(TLS_CONFIG["certificate_path"])  # Load CA certificate for server verification
+ssl_context.load_cert_chain(
+    certfile=TLS_CONFIG["client_cert_path"],  # Load client certificate
+    keyfile=TLS_CONFIG["client_key_path"]     # Load client private key
+)
 ssl_context.verify_mode = getattr(ssl, TLS_CONFIG["verify_mode"])
 ssl_context.check_hostname = TLS_CONFIG["check_hostname"]
 
