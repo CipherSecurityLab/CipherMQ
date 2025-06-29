@@ -132,7 +132,7 @@ ca_cert_path = "certs/ca.crt"
 ```
 
 ### Client Configuration
-Create a `config.json` file in both `sender/` and `receiver/` directories:
+Create a config.json file in the src/client directory for Sender and Receiver, ensuring the following values are set:
 ```json
 {
   "exchange_name": "ciphermq_exchange",
@@ -158,7 +158,7 @@ Create a `config.json` file in both `sender/` and `receiver/` directories:
 
 ## Usage
 ### 1. Run the Server
-Start the server with TLS support:
+Start the server with mTLS support:
 ```bash
 cd root
 cargo run --release
