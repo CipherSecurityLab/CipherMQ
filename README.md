@@ -203,6 +203,7 @@ The following diagrams, located in `docs/diagrams`, illustrate CipherMQ's archit
 ## Future Improvements
 - Support standard protocols like AMQP or MQTT.
 - Enable distributed server scaling.
+- For generating a key to migrate from 2048-bit RSA to ECDSA(P-384)
 - Implement certificate rotation and CRL/OCSP for enhanced security.
 - Add support for Hardware Security Modules (HSM) for key management.
 
