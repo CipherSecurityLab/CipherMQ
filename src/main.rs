@@ -1,8 +1,9 @@
 use crate::auth::{AuthHandler, MTlsAuth};
 use crate::config::Config;
-use crate::connection::{create_listener};
+use crate::connection::create_listener;
 use crate::server::handle_client;
 use crate::state::ServerState;
+use crate::storage::Storage;
 use std::sync::Arc;
 use tracing::{error, info};
 
@@ -11,21 +12,23 @@ mod server;
 mod connection;
 mod config;
 mod auth;
+mod storage;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     let config = Config::load("config.toml")?;
-    let state = Arc::new(tokio::sync::RwLock::new(ServerState::new()));
-    let listener = create_listener(&config.address).await?;
-    info!("Server listening on {}", config.address);
+    let storage = Arc::new(Storage::new(&config.database).await?);
+    let state = Arc::new(tokio::sync::RwLock::new(ServerState::new(storage.clone())));
+    let listener = create_listener(&config.server.address).await?;
+    info!("Server listening on {}", config.server.address);
 
-    match config.connection_type.as_str() {
+    match config.server.connection_type.as_str() {
         "tls" => {
-            let cert_path = config.cert_path.ok_or("Missing cert_path for TLS")?;
-            let key_path = config.key_path.ok_or("Missing key_path for TLS")?;
-            let ca_cert_path = config.ca_cert_path.ok_or("Missing ca_cert_path for TLS")?;
+            let cert_path = config.tls.cert_path.ok_or("Missing cert_path for TLS")?;
+            let key_path = config.tls.key_path.ok_or("Missing key_path for TLS")?;
+            let ca_cert_path = config.tls.ca_cert_path.ok_or("Missing ca_cert_path for TLS")?;
             let auth_handler = MTlsAuth::new(&cert_path, &key_path, &ca_cert_path)?;
 
             loop {

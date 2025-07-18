@@ -5,9 +5,11 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::time::{timeout, Duration};
 use tracing::{error, info, warn, instrument};
 use crate::connection::Connection;
+use uuid::Uuid;
 
 #[instrument(skip(stream, state))]
 pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<ServerState>>) {
+    let client_id = Uuid::new_v4().to_string();
     state.write().await.increment_client_count().await;
     let mut buffer = Vec::with_capacity(4096);
     let (tx, mut rx) = mpsc::unbounded_channel::<(String, EncryptedInputData)>();
@@ -17,14 +19,14 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
             result = timeout(Duration::from_secs(1), stream.read_buf(&mut buffer)) => {
                 match result {
                     Ok(Ok(n)) if n == 0 => {
-                        info!("Client disconnected");
+                        info!("Client {} disconnected", client_id);
                         state.write().await.decrement_client_count().await;
                         return;
                     }
                     Ok(Ok(_)) => {
                         let start_time = Instant::now();
                         let request = String::from_utf8_lossy(&buffer).trim().to_string();
-                        info!("Received request: {}", request);
+                        info!("Received request from client {}: {}", client_id, request);
 
                         let parts: Vec<&str> = request.splitn(2, ' ').collect();
                         let command = parts.get(0).unwrap_or(&"");
@@ -44,7 +46,7 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                                     state.read().await.declare_exchange(args_str);
                                     stream.write_all(b"Exchange declared\n").await.unwrap();
                                 } else {
-                                    stream.write_all(b"Missing queue name\n").await.unwrap();
+                                    stream.write_all(b"Missing exchange name\n").await.unwrap();
                                 }
                             }
                             "bind" => {
@@ -62,7 +64,7 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                                     let message_str = args[2];
                                     match serde_json::from_str::<EncryptedInputData>(message_str) {
                                         Ok(message) => {
-                                            match state.read().await.publish(args[0], args[1], message.clone(), start_time) {
+                                            match state.read().await.publish(args[0], args[1], message.clone(), client_id.clone()).await {
                                                 Ok(()) => {
                                                     stream
                                                         .write_all(format!("ACK {}\n", message.message_id).as_bytes())
@@ -99,7 +101,7 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                                         Ok(messages) => {
                                             let mut acks = Vec::new();
                                             for message in messages {
-                                                match state.read().await.publish(exchange, routing_key, message.clone(), start_time) {
+                                                match state.read().await.publish(exchange, routing_key, message.clone(), client_id.clone()).await {
                                                     Ok(()) => {
                                                         acks.push(format!("ACK {}", message.message_id));
                                                     }
@@ -132,7 +134,7 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                             }
                             "fetch" => {
                                 if !args_str.is_empty() {
-                                    if let Some((message_id, message)) = state.read().await.consume(args_str) {
+                                    if let Some((message_id, message)) = state.read().await.consume(args_str).await {
                                         let message_str = serde_json::to_string(&message).unwrap();
                                         stream
                                             .write_all(format!("Message: {} {}\n", message_id, message_str).as_bytes())
@@ -148,7 +150,7 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                             "ack" => {
                                 if !args_str.is_empty() {
                                     info!("Processing ACK for message {}", args_str);
-                                    state.read().await.acknowledge(args_str);
+                                    state.read().await.acknowledge(args_str).await;
                                     stream
                                         .write_all(format!("ACK_CONFIRMED {}\n", args_str).as_bytes())
                                         .await
@@ -166,8 +168,51 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                                     .unwrap();
                             }
                             "reset_stats" => {
-                                state.read().await.reset_stats();
+                                state.write().await.reset_stats();
                                 stream.write_all(b"Stats reset\n").await.unwrap();
+                            }
+                            "register_key" => {
+                                let args: Vec<&str> = args_str.splitn(2, ' ').collect();
+                                if args.len() == 2 {
+                                    let client_id = args[0];
+                                    let public_key = args[1];
+                                    match state.read().await.save_public_key(client_id, public_key).await {
+                                        Ok(()) => {
+                                            stream.write_all(b"Public key registered\n").await.unwrap();
+                                        }
+                                        Err(e) => {
+                                            stream
+                                                .write_all(format!("Error registering key: {}\n", e).as_bytes())
+                                                .await
+                                                .unwrap();
+                                        }
+                                    }
+                                } else {
+                                    stream.write_all(b"Missing client ID or public key\n").await.unwrap();
+                                }
+                            }
+                            "get_key" => {
+                                if !args_str.is_empty() {
+                                    match state.read().await.get_public_key(args_str).await {
+                                        Ok(Some(key)) => {
+                                            stream
+                                                .write_all(format!("Public key: {}\n", key).as_bytes())
+                                                .await
+                                                .unwrap();
+                                        }
+                                        Ok(None) => {
+                                            stream.write_all(b"No public key found\n").await.unwrap();
+                                        }
+                                        Err(e) => {
+                                            stream
+                                                .write_all(format!("Error retrieving key: {}\n", e).as_bytes())
+                                                .await
+                                                .unwrap();
+                                        }
+                                    }
+                                } else {
+                                    stream.write_all(b"Missing client ID\n").await.unwrap();
+                                }
                             }
                             _ => {
                                 stream.write_all(b"Unknown command\n").await.unwrap();
@@ -178,7 +223,7 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                         buffer.clear();
                     }
                     Ok(Err(e)) => {
-                        error!("Error reading from stream: {}", e);
+                        error!("Error reading from stream for client {}: {}", client_id, e);
                         state.write().await.decrement_client_count().await;
                         return;
                     }
@@ -195,7 +240,7 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                     .await
                     .is_err()
                 {
-                    warn!("Failed to send message to client");
+                    warn!("Failed to send message {} to client {}", message_id, client_id);
                     state.write().await.decrement_client_count().await;
                     return;
                 }

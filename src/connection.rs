@@ -5,7 +5,6 @@ use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
 use std::io::{self};
 
-
 #[async_trait]
 pub trait Connection: AsyncRead + AsyncWrite + Send + Sync + Unpin {
     async fn read_buf(&mut self, buf: &mut Vec<u8>) -> io::Result<usize>;

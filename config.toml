@@ -1,8 +1,15 @@
-connection_type = "tls" 
+[server]
 address = "127.0.0.1:5672"
+connection_type = "tls"
 
-
-cert_path = "certs/server.crt"  
-key_path = "certs/server.key"  
+[tls]
+cert_path = "certs/server.crt"
+key_path = "certs/server.key"
 ca_cert_path = "certs/ca.crt"
 
+[database]
+dbname = "public_keys.db"
+
+[encryption]
+algorithm = "x25519_chacha20_poly1305"
+aes_key = "YOUR_BASE64_ENCODED_32_BYTE_AES_KEY"
