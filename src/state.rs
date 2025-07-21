@@ -5,10 +5,12 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{info, warn};
+use crate::storage::{PublicKeyData, Storage};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EncryptedInputData {
     pub message_id: String,
+    pub receiver_client_id: String,
     pub enc_session_key: String,
     pub nonce: String,
     pub tag: String,
@@ -48,10 +50,11 @@ pub struct ServerState {
     pub message_status: DashMap<String, MessageStatus>,
     pub request_times: DashMap<String, Vec<f64>>,
     pub connected_clients: Arc<RwLock<usize>>,
+    pub storage: Arc<Storage>,
 }
 
 impl ServerState {
-    pub fn new() -> Self {
+    pub fn new(storage: Arc<Storage>) -> Self {
         ServerState {
             queues: DashMap::new(),
             bindings: DashMap::new(),
@@ -60,6 +63,7 @@ impl ServerState {
             message_status: DashMap::new(),
             request_times: DashMap::new(),
             connected_clients: Arc::new(RwLock::new(0)),
+            storage,
         }
     }
 
@@ -93,12 +97,37 @@ impl ServerState {
         }
     }
 
-    pub fn publish(
+    pub fn register_consumer(&self, queue_name: &str, sender: mpsc::UnboundedSender<(String, EncryptedInputData)>) {
+        if self.queues.contains_key(queue_name) {
+            let mut consumers = self.consumers.entry(queue_name.to_string()).or_insert_with(Vec::new);
+            consumers.push(sender.clone());
+            info!("Consumer registered for queue '{}'", queue_name);
+            // Send any existing messages in the queue to the new consumer
+            if let Some(queue) = self.queues.get(queue_name) {
+                for (message_id, message) in queue.iter() {
+                    if !self.message_status.contains_key(message_id) {
+                        continue; // Skip if message is already acknowledged
+                    }
+                    if sender.send((message_id.clone(), message.clone())).is_err() {
+                        warn!("Failed to send message {} to new consumer for queue '{}'", message_id, queue_name);
+                    } else {
+                        if let Some(mut status) = self.message_status.get_mut(message_id) {
+                            status.delivered(Instant::now());
+                        }
+                    }
+                }
+            }
+        } else {
+            warn!("Cannot register consumer: Queue '{}' does not exist", queue_name);
+        }
+    }
+
+    pub async fn publish(
         &self,
         exchange_name: &str,
         routing_key: &str,
         message: EncryptedInputData,
-        received_time: Instant,
+        _client_id: String,
     ) -> Result<(), String> {
         let message_id = message.message_id.clone();
         if self.message_status.contains_key(&message_id) {
@@ -122,7 +151,7 @@ impl ServerState {
                 }
             }
             self.message_status
-                .insert(message_id.clone(), MessageStatus::sent(received_time));
+                .insert(message_id.clone(), MessageStatus::sent(Instant::now()));
             info!(
                 "Published message {} to queue '{}' via exchange '{}'",
                 message_id, routing_key, exchange_name
@@ -133,20 +162,7 @@ impl ServerState {
         }
     }
 
-    pub fn register_consumer(
-        &self,
-        queue_name: &str,
-        sender: mpsc::UnboundedSender<(String, EncryptedInputData)>,
-    ) {
-        self.declare_queue(queue_name);
-        self.consumers
-            .entry(queue_name.to_string())
-            .or_insert_with(Vec::new)
-            .push(sender);
-        info!("Consumer registered for queue '{}'", queue_name);
-    }
-
-    pub fn consume(&self, queue_name: &str) -> Option<(String, EncryptedInputData)> {
+    pub async fn consume(&self, queue_name: &str) -> Option<(String, EncryptedInputData)> {
         if let Some(mut queue) = self.queues.get_mut(queue_name) {
             if !queue.is_empty() {
                 let (message_id, message) = queue.remove(0);
@@ -159,7 +175,7 @@ impl ServerState {
         None
     }
 
-    pub fn acknowledge(&self, message_id: &str) {
+    pub async fn acknowledge(&self, message_id: &str) {
         if !self.message_status.contains_key(message_id) {
             warn!("Ignoring duplicate ACK for message {}", message_id);
             return;
@@ -170,6 +186,9 @@ impl ServerState {
         for mut queue in self.queues.iter_mut() {
             queue.retain(|(id, _)| id != message_id);
         }
+        for mut consumers in self.consumers.iter_mut() {
+            consumers.retain(|sender| !sender.is_closed());
+        }
         self.message_status.remove(message_id);
         info!("Message {} acknowledged by client, removed from queues and status", message_id);
     }
@@ -178,6 +197,14 @@ impl ServerState {
         self.message_status.clear();
         self.request_times.clear();
         info!("Server stats reset");
+    }
+
+    pub fn record_request_time(&self, command: &str, duration: f64) {
+        self.request_times
+            .entry(command.to_string())
+            .or_insert_with(Vec::new)
+            .push(duration);
+        info!("Recorded request time for '{}': {}s", command, duration);
     }
 
     pub async fn increment_client_count(&self) {
@@ -190,11 +217,24 @@ impl ServerState {
         *count -= 1;
     }
 
-    pub fn record_request_time(&self, command: &str, duration: f64) {
-        self.request_times
-            .entry(command.to_string())
-            .or_insert_with(Vec::new)
-            .push(duration);
+    pub async fn save_public_key(&self, client_id: &str, public_key: &str) -> Result<(), String> {
+        let key_data = PublicKeyData {
+            client_id: client_id.to_string(),
+            public_key: public_key.to_string(),
+        };
+        self.storage
+            .save_public_key(&key_data)
+            .await
+            .map_err(|e| format!("Failed to save public key: {}", e))?;
+        info!("Public key saved for client {}", client_id);
+        Ok(())
+    }
+
+    pub async fn get_public_key(&self, client_id: &str) -> Result<Option<String>, String> {
+        self.storage
+            .get_public_key(client_id)
+            .await
+            .map_err(|e| format!("Failed to get public key: {}", e))
     }
 
     pub async fn get_stats(&self) -> serde_json::Value {
