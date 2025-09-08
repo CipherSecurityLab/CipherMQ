@@ -52,7 +52,7 @@ Initial architecture of CipherMQ is as follows:
 - **Push-Based Messaging**: Messages are delivered to connected consumers.
 - **Thread-Safe Data Structures**: Uses `DashMap` for safe multi-threaded operations.
 - **Flexible Routing**: Supports exchanges and queues with routing keys for efficient message delivery.
-- **Persistent Storage**: Stores message metadata and encrypted public keys in PostgreSQL.
+- **Persistent Metadata Storage**: Stores message metadata and encrypted public keys in PostgreSQL.
 - **Structured Logging**: JSON-based logging with rotation and level-based filtering.
 
 
