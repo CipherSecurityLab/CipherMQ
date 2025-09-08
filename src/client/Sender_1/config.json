@@ -1,0 +1,34 @@
+{
+    "receiver_client_ids": ["receiver_1", "receiver_2"],
+    "exchange_name": "CipherMQ_exchange",
+    "bindings": [
+        {
+            "queue_name": "receiver_1_queue",
+            "exchange_name": "CipherMQ_exchange",
+            "routing_key": "receiver_1_key"
+        },
+        {
+            "queue_name": "receiver_2_queue",
+            "exchange_name": "CipherMQ_exchange",
+            "routing_key": "receiver_2_key"
+        }
+    ],
+    "server_address": "127.0.0.1",
+    "server_port": 5672,
+    "tls": {
+        "protocol": "PROTOCOL_TLS_CLIENT",
+        "certificate_path": "keys/ca.crt",
+        "client_cert_path": "keys/client.crt",
+        "client_key_path": "keys/client.key",
+        "verify_mode": "CERT_REQUIRED",
+        "check_hostname": false
+    },
+    "logging": {
+        "level": "INFO",
+        "info_file_path": "logs/client_info.log",
+        "debug_file_path": "logs/client_debug.log",
+        "error_file_path": "logs/client_error.log",
+        "rotation": "daily",
+        "max_size_mb": 100
+    }
+}

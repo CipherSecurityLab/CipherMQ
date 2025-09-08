@@ -1,0 +1,10 @@
+[package]
+name = "cert_generator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rcgen = "0.13.2"
+time = "0.3.41"
+rsa = "0.9.8"
+rand = "0.8"
