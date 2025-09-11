@@ -7,8 +7,7 @@
 </p>
 
 
-
-![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)  ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg)  ![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
+![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)  ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg) ![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-10%2B-green.svg)
 
 **CipherMQ** is a secure, high-performance message broker designed for encrypted message transmission between senders and receivers using a push-based architecture. It leverages **hybrid encryption** (x25519 + AES-GCM-256) for message confidentiality and authenticity, combined with **Mutual TLS (mTLS)** for secure client-server communication. The system ensures **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms, with messages temporarily held in memory and routed via exchanges and queues. Metadata and public keys are stored in a PostgreSQL database, Public keys are securely stored with ChaCha20-Poly1305 encryption, and receivers register their public keys with the server for secure distribution to senders.
 
@@ -52,7 +51,7 @@ Initial architecture of CipherMQ is as follows:
 - **Push-Based Messaging**: Messages are delivered to connected consumers.
 - **Thread-Safe Data Structures**: Uses `DashMap` for safe multi-threaded operations.
 - **Flexible Routing**: Supports exchanges and queues with routing keys for efficient message delivery.
-- **Persistent Metadata Storage**: Stores message metadata and encrypted public keys in PostgreSQL.
+- **Persistent Storage**: Stores message metadata and encrypted public keys in PostgreSQL.
 - **Structured Logging**: JSON-based logging with rotation and level-based filtering.
 
 
@@ -87,7 +86,7 @@ cd root/create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client
 cargo run -- receiver_1 sender_1 
 ```
 
-This creates:
+This produces:
 - `ca.crt`: Certificate Authority (CA) certificate for verifying server and client certificates.
 - `server.crt`: Server certificate for mTLS.
 - `server.key`: Server private key for mTLS.
@@ -104,9 +103,19 @@ cd root/create_ca_key/Rust_Key_Maker_X25519
 cargo run --release
 ```
 
-This creates:
+Outputs::
 - `receiver/certs/receiver_private.key`: Receiver's private key for decryption.
 - `receiver/certs/receiver_public.key`: Public key for sender encryption.
+
+### 5. Set Up Database
+
+Initialize PostgreSQL:
+
+```sql
+CREATE DATABASE ciphermq;
+CREATE USER mq_user WITH PASSWORD 'mq_pass';
+GRANT ALL PRIVILEGES ON DATABASE ciphermq TO mq_user;
+```
 
 
 
@@ -135,8 +144,8 @@ max_size_mb = 100
 [database]
 host = "localhost"
 port = 5432
-user = "USER"
-password = "PASS"
+user = "mq_user"
+password = "mq_pass"
 dbname = "ciphermq"
 
 [encryption]
@@ -167,13 +176,19 @@ cd root
 cargo run --release
 ```
 
+Server listens on configured address, initializes DB connections, and awaits client registrations.
+
 ### 2. Run the Receiver
+
 Start the receiver to subscribe to messages:
 ```bash
 cd src/client/Receiver_1
 python Receiver.py
 ```
-The receiver connects to the server via TLS, registers its public key using the `register_key` command, declares and binds to `my_queue`, decrypts messages, and saves them to `data/received_messages.jsonl`.
+- Registers public key via `register_key`.
+- Declares queue & exchange.
+- Decrypts incoming messages and persists to `data/received_messages.jsonl`.
+- Sends ACKs and handles retries.
 
 ### 3. Run the Sender
 
@@ -181,7 +196,15 @@ The receiver connects to the server via TLS, registers its public key using the 
 cd src/client/Sender_1
 python Sender.py
 ```
-The sender fetches the receiver's public key using the `get_key` command, encrypts messages using hybrid encryption, sends them in batches via `my_exchange` and `my_key`, and retries until acknowledgment.
+- Fetches receiver public key via `get_key`.
+
+- Encrypts sample messages (hybrid scheme).
+
+- Declares queue & exchange.
+
+- Publishes batches to exchange with routing key.
+
+  
 
 
 ## Architecture
@@ -203,11 +226,15 @@ The following diagrams, located in `docs/diagrams`, illustrate CipherMQ's archit
 - **[Sequence Diagram](docs/diagrams/Sequence_diagram.png)**: Shows the end-to-end message flow, including mTLS handshakes, public key registration, and hybrid encryption.
 - **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: Details the operational flow, including mTLS connection setup, key registration, and message processing.
 
+
+
 ## Future Improvements
+
 - Enable distributed server scaling for high availability.
 - Implement certificate rotation and CRL/OCSP for enhanced security.
 - Add support for Hardware Security Modules (HSM) for key management.
-- Enhance monitoring with structured logging (optional reintroduction).
+
+
 
 ## Contributing
 
@@ -218,6 +245,8 @@ Contributions are welcome! Please:
 3. Follow coding standards and include tests.
 
 For major changes, open an issue to discuss your proposal.
+
+
 
 ## License
 
