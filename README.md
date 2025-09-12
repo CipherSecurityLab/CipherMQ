@@ -242,12 +242,12 @@ python Sender.py
 ## Architecture
 
 CipherMQ is a message broker system with the following components:
-- **Server** (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`, `auth.rs`, `storage.rs`): A Rust-based broker that handles mTLS connections, message routing, and delivery using exchanges and queues. Public keys are encrypted with ChaCha20-Poly1305 and stored in an SQLite database. The server supports the `register_key` command to store receiver public keys and the `get_key` command to provide them to senders.
+- **Server** (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`, `auth.rs`, `storage.rs`): A Rust-based broker that handles mTLS connections, message routing, and delivery using exchanges and queues. Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database. The server supports the `register_key` command to store receiver public keys and the `get_key` command to provide them to senders.
 - **Sender** (`sender.py`): Fetches receiver public keys using `get_key`, encrypts messages with hybrid encryption (x25519 + AES-GCM-256), sends them in batches, and ensures delivery with retries.
 - **Receiver** (`receiver.py`): Registers its public key with the server using `register_key`, receives, decrypts, deduplicates, and stores messages in JSONL format, with acknowledgment retries.
 - **mTLS Integration** (`auth.rs`, `connection.rs`): Supports secure two-way authentication using `tokio-rustls` and `WebPkiClientVerifier`.
 - **Hybrid Encryption**: Combines x25519 for session key encryption and AES-GCM-256 for message encryption and authentication.
-- **Key Storage** (`storage.rs`): Public keys are encrypted with ChaCha20-Poly1305 and stored in an SQLite database, accessible via `register_key` and `get_key` commands.
+- **Key Storage** (`storage.rs`): Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database, accessible via `register_key` and `get_key` commands.
 
 For a detailed architecture overview, see [CipherMQ Project Architecture](docs/Project_Architecture.md).
 
