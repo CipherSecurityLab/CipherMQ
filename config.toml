@@ -7,9 +7,21 @@ cert_path = "certs/server.crt"
 key_path = "certs/server.key"
 ca_cert_path = "certs/ca.crt"
 
+[logging]
+level = "debug"
+info_file_path = "logs/server_info.log"
+debug_file_path = "logs/server_debug.log"
+error_file_path = "logs/server_error.log"
+rotation = "never"
+max_size_mb = 100
+
 [database]
-dbname = "public_keys.db"
+host = "localhost"
+port = 5432
+user = "YOUR_USER" 
+password = "YOUR_PASS"
+dbname = "ciphermq"
 
 [encryption]
 algorithm = "x25519_chacha20_poly1305"
-aes_key = "YOUR_BASE64_ENCODED_32_BYTE_AES_KEY"
+aes_key = "YOUR_BASE64_ENCODED_32_BYTE_AES_KEY" 

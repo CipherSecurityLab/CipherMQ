@@ -1,0 +1,10 @@
+[package]
+name = "key_generator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+x25519-dalek = "1.2"
+rand = "0.7"
+rand_core = "0.5"
+base64 = "0.21.7"
