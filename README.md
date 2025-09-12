@@ -30,7 +30,7 @@ Initial architecture of CipherMQ is as follows:
 2. [Prerequisites](#prerequisites)
 3. [Installation](#installation)
 4. [Configuration](#configuration)
-5. [Project Structure](#Project Structure)
+5. [Project Structure](#Project-Structure)
 6. [Usage](#usage)
 7. [Architecture](#architecture)
 8. [Diagrams](#diagrams)
