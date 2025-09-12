@@ -30,12 +30,13 @@ Initial architecture of CipherMQ is as follows:
 2. [Prerequisites](#prerequisites)
 3. [Installation](#installation)
 4. [Configuration](#configuration)
-5. [Usage](#usage)
-6. [Architecture](#architecture)
-7. [Diagrams](#diagrams)
-8. [Future Improvements](#future-improvements)
-9. [Contributing](#contributing)
-10. [License](#license)
+5. [Project Structure](#Project Structure)
+6. [Usage](#usage)
+7. [Architecture](#architecture)
+8. [Diagrams](#diagrams)
+9. [Future Improvements](#future-improvements)
+10. [Contributing](#contributing)
+11. [License](#license)
 
 
 
@@ -166,6 +167,33 @@ openssl rand -base64 32
 > **Security Note**: Restrict access to `server.key`, `client.key`, and `receiver_private.key (e.g., `chmod 600`).
 
 
+## Project Structure
+
+CipherMQ/
+├── src/
+│   ├── main.rs               # Entry point for the server
+│   ├── server.rs             # Client request handling and message processing
+│   ├── connection.rs         # mTLS connection management
+│   ├── state.rs              # Server state management (queues, exchanges, consumers)
+│   ├── auth.rs               # mTLS authentication logic
+│   ├── storage.rs            # PostgreSQL storage for metadata and public keys
+│   ├── config.rs             # Configuration parsing and validation
+│   └── client/
+│       ├── Receiver_1/
+│       │   ├── keys/         # Certificates and keys for receiver
+│       │       └── ( receiver_public.key & receiver_private.key & ca.crt & client.crt & client.key)
+│       │   ├── Receiver.py   # Receiver implementation
+│       │   └── config.json   # Receiver configuration
+│       └── Sender_1/
+│           ├── keys/         # Certificates and keys for sender
+│               └── ( ca.crt & client.crt & client.key )
+│           ├── Sender.py     # Sender implementation
+│           └── config.json   # Sender configuration
+├── Cargo.toml                # Rust dependencies
+├── config.toml               # Server configuration
+└── certs/                    # Server certificates
+    └── ( ca.crt & server.crt & server.key & ca.key )
+
 
 ## Usage
 
@@ -199,8 +227,6 @@ python Sender.py
 - Fetches receiver public key via `get_key`.
 
 - Encrypts sample messages (hybrid scheme).
-
-- Declares queue & exchange.
 
 - Publishes batches to exchange with routing key.
 
