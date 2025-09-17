@@ -262,9 +262,12 @@ The following diagrams, located in `docs/diagrams`, illustrate CipherMQ's archit
 
 ## Future Improvements
 
+- A server status control dashboard with mTLS connection.
+- Switch to deadpool_postgres with a connection Pool for enhanced database performance and scalability.
 - Enable distributed server scaling for high availability.
 - Implement certificate rotation and CRL/OCSP for enhanced security.
 - Add support for Hardware Security Modules (HSM) for key management.
+
 
 
 
