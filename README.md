@@ -1,7 +1,5 @@
 # CipherMQ: A New Generation Secure Message Broker
 
-
-
 <p align="center">
 <img src="./docs/CipherMQ.jpg" width="350" height="350">
 </p>
@@ -48,6 +46,7 @@ Initial architecture of CipherMQ is as follows:
 - **Zero Message Loss**: Sender retries until server acknowledgment (`ACK <message_id>`), and server retries delivery until receiver acknowledgment (`ack <message_id>`).
 - **Exactly-Once Delivery**: Receiver deduplicates messages using `message_id` to prevent reprocessing.
 - **Batch Processing**: Sender collects and sends messages in batches, ensuring all queued messages are delivered.
+- **Real-time Processing**: Sender transmits each message immediately upon generation, ensuring instant delivery without queuing or batching delays.
 - **Asynchronous Processing**: Built with Tokio for concurrent, high-performance connection handling.
 - **Push-Based Messaging**: Messages are delivered to connected consumers.
 - **Thread-Safe Data Structures**: Uses `DashMap` for safe multi-threaded operations.
