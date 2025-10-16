@@ -256,7 +256,8 @@ For a detailed architecture overview, see [CipherMQ Project Architecture](docs/P
 The following diagrams, located in `docs/diagrams`, illustrate CipherMQ's architecture and mTLS flow:
 - **[Sequence Diagram](docs/diagrams/Sequence_diagram.png)**: Shows the end-to-end message flow, including mTLS handshakes, public key registration, and hybrid encryption.
 - **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: Details the operational flow, including mTLS connection setup, key registration, and message processing.
-
+- **[Hybrid Cryptography Diagrams](https://ciphermq.com/docs/index.php/ciphermq-hybrid-cryptography-diagrams/)**: You can see more detailed and visualized diagrams regarding CipherMQ here.
+- **[CipherMQ Full Key Exchange Process](https://ciphermq.com/docs/index.php/ciphermq-full-key-exchange-process/)**: You can see an animated version of key exchange process in the world of CipherMQ here.
 
 
 ## Future Improvements
