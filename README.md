@@ -70,7 +70,7 @@ To run CipherMQ with TLS, you need:
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/fozouni/CipherMQ.git
+git clone https://github.com/CipherSecurityLab/CipherMQ.git
 ```
 
 ### 2. Set up the Rust Server
