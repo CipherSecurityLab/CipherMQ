@@ -13,7 +13,6 @@ pub struct EncryptedInputData {
     pub receiver_client_id: String,
     pub enc_session_key: String,
     pub nonce: String,
-    pub tag: String,
     pub ciphertext: String,
 }
 
@@ -44,7 +43,7 @@ impl MessageStatus {
 
 pub struct ServerState {
     pub queues: DashMap<String, Vec<(String, EncryptedInputData)>>,
-    pub bindings: DashMap<String, Vec<(String, String)>>, // تغییر به ذخیره (queue_name, routing_key)
+    pub bindings: DashMap<String, Vec<(String, String)>>, 
     pub exchanges: DashMap<String, Vec<String>>,
     pub consumers: DashMap<String, Vec<mpsc::UnboundedSender<(String, EncryptedInputData)>>>,
     pub message_status: DashMap<String, MessageStatus>,
@@ -109,7 +108,7 @@ impl ServerState {
             return Err(format!("Duplicate message {} ignored", message_id));
         }
 
-        // ثبت متادیتا در دیتابیس
+        
         let metadata = MessageMetadata {
             message_id: message_id.clone(),
             client_id,
@@ -124,7 +123,7 @@ impl ServerState {
             return Err(format!("Failed to save metadata: {}", e));
         }
 
-        // انتشار پیام فقط به صف‌هایی که routing_key مطابقت دارد
+        
         let mut target_queues = Vec::new();
         if let Some(bindings) = self.bindings.get(exchange_name) {
             for (queue_name, bound_routing_key) in bindings.iter() {
@@ -154,7 +153,7 @@ impl ServerState {
             }
         }
 
-        // ثبت زمان ارسال در MessageStatus
+        
         self.message_status
             .insert(message_id.clone(), MessageStatus::sent(received_time));
 
