@@ -108,6 +108,7 @@ impl Storage {
             let config = Config::load("config.toml").expect("Failed to load config");
             let aes_key = BASE64.decode(&config.encryption.aes_key)
                 .expect("Invalid AES key");
+            #[allow(deprecated)]
             let key = Key::<Aes256Gcm>::from_slice(&aes_key);
             let cipher = Aes256Gcm::new(key);
 
@@ -250,6 +251,7 @@ impl Storage {
                             }
                             StorageCommand::SavePublicKey(key_data, reply) => {
                                 debug!("Received SavePublicKey command for client {}", key_data.client_id);
+                                #[allow(deprecated)]
                                 let result = (|| async {
                                     let nonce_bytes: [u8; 12] = rand::thread_rng().gen();
                                     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -298,6 +300,7 @@ impl Storage {
                                             .map_err(|e| StorageError::EncryptionError(format!("Invalid nonce: {}", e)))?;
                                         let tag = BASE64.decode(&tag_b64)
                                             .map_err(|e| StorageError::EncryptionError(format!("Invalid tag: {}", e)))?;
+                                        #[allow(deprecated)]
                                         let nonce = Nonce::from_slice(&nonce_bytes);
                                         let encrypted_bytes = [ciphertext, tag].concat();
                                         let decrypted_bytes = cipher.decrypt(nonce, encrypted_bytes.as_slice())
