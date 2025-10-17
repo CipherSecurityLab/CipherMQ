@@ -16,6 +16,7 @@ pub struct EncryptedInputData {
     pub ciphertext: String,
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct MessageStatus {
     sent_time: Option<Instant>,
