@@ -123,6 +123,8 @@ psql -U postgres
 CREATE USER mq_user WITH PASSWORD 'mq_pass';
 CREATE DATABASE ciphermq;
 GRANT ALL PRIVILEGES ON DATABASE ciphermq TO mq_user;
+\c ciphermq
+GRANT ALL PRIVILEGES ON SCHEMA public TO mq_user;
 ```
 
 
