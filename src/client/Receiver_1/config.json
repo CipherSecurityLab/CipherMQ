@@ -6,9 +6,9 @@
     "server_port": 5672,
     "tls": {
         "protocol": "PROTOCOL_TLS_CLIENT",
-        "certificate_path": "keys/ca.crt",
-        "client_cert_path": "keys/client.crt",
-        "client_key_path": "keys/client.key",
+        "certificate_path": "../../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/ca.crt",
+        "client_cert_path": "../../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/clients/receiver_1/client.crt",
+        "client_key_path": "../../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/clients/receiver_1/client.key",
         "verify_mode": "CERT_REQUIRED",
         "check_hostname": false
     },

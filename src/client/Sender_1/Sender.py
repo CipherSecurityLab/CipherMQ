@@ -403,7 +403,7 @@ async def send_messages_persistent(num_messages=100):
             logger.info(f"Retrying {len(failed_messages)} failed messages")
             for encrypted_message in failed_messages:
                 await send_message(reader, writer, encrypted_message)
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.1)
 
         logger.info(f"Successfully sent {num_messages} messages (with {len(failed_messages)} retries)")
 

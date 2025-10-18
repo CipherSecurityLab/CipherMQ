@@ -56,7 +56,6 @@ def setup_logging(config):
 # Load configuration
 try:
     os.makedirs("logs", exist_ok=True)
-    os.makedirs("keys", exist_ok=True)
     os.makedirs("data", exist_ok=True)
     with open("config.json", "r") as config_file:
         config = json.load(config_file)
@@ -83,10 +82,11 @@ ack_queue = asyncio.Queue()
 
 # Load keys
 try:
-    with open("keys/receiver_private.key", "r") as key_file:
+
+    with open("../../../create_ca_key/Rust_Key_Maker_X25519/receiver_private.key", "r") as key_file:
         private_key_bytes = b64decode(key_file.read())
         PRIVATE_KEY = PrivateKey(private_key_bytes)
-    with open("keys/receiver_public.key", "r") as key_file:
+    with open("../../../create_ca_key/Rust_Key_Maker_X25519/receiver_public.key", "r") as key_file:
         PUBLIC_KEY_X25519 = x25519.X25519PublicKey.from_public_bytes(b64decode(key_file.read()))
 except Exception as e:
     logger.error(f"Error loading keys: {e}")

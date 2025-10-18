@@ -3,9 +3,9 @@ address = "127.0.0.1:5672"
 connection_type = "tls"
 
 [tls]
-cert_path = "certs/server.crt"
-key_path = "certs/server.key"
-ca_cert_path = "certs/ca.crt"
+cert_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.crt"
+key_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.key"
+ca_cert_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/ca.crt"
 
 [logging]
 level = "debug"

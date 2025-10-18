@@ -73,16 +73,12 @@ To run CipherMQ with TLS, you need:
 git clone https://github.com/CipherSecurityLab/CipherMQ.git
 ```
 
-### 2. Set up the Rust Server
-```bash
-cd root
-cargo build --release
-```
-### 3. Generate mTLS Certificates
+### 2. Generate mTLS Certificates
 Run the provided script to generate CA certificates, server certificate, and client certificate for mTLS:
 
 ```bash
-cd root/create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client
+cd root
+cd create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client
 cargo run -- receiver_1 sender_1 
 ```
 
@@ -94,18 +90,29 @@ This produces:
 - `client.key`: Client private key for mTLS.
 
 > **Note**: Store `ca.key` securely and do not distribute it. It is only used for certificate generation.
+> 
+> **Security Note**: Restrict access to `server.key`, `client.key` (chmod 600).
 
-### 4. Generate x25519 Keys
+### 3. Generate x25519 Keys
 
 Run the provided script to generate x25519 key pairs for hybrid encryption for the receiver:
 ```bash
-cd root/create_ca_key/Rust_Key_Maker_X25519
+cd root
+cd create_ca_key/Rust_Key_Maker_X25519
 cargo run --release
 ```
 
 Outputs::
-- `receiver/certs/receiver_private.key`: Receiver's private key for decryption.
-- `receiver/certs/receiver_public.key`: Public key for sender encryption.
+- `receiver_private.key`: Receiver's private key for decryption.
+- `receiver_public.key`: Public key for sender encryption.
+
+> **Security Note**: Restrict access to  `receiver_private.key` (chmod 600).
+
+### 4. Set up the Rust Server
+```bash
+cd root
+cargo build --release
+```
 
 ### 5. Set Up Database
 
@@ -129,9 +136,9 @@ address = "127.0.0.1:5672"
 connection_type = "tls"
 
 [tls]
-cert_path = "certs/server.crt"
-key_path = "certs/server.key"
-ca_cert_path = "certs/ca.crt"
+cert_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.crt"
+key_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.key"
+ca_cert_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/ca.crt"
 
 [logging]
 level = "error"
@@ -159,11 +166,8 @@ openssl rand -base64 32
 ```
 
 ### Client Configuration
- `config.json` file in both `sender/` and `receiver/` directories:`
+ `config.json` file in both `sender/` and `receiver/` directories ensure `exchange_name`, `queue_name`, and `routing_key` match across Sender, Receiver, and server for proper message routing.
 
-> **Note**: Ensure `exchange_name`, `queue_name`, and `routing_key` match across Sender, Receiver, and server for proper message routing.
-
-> **Security Note**: Restrict access to `server.key`, `client.key`, and `receiver_private.key (e.g., `chmod 600`).
 
 
 
@@ -181,20 +185,16 @@ CipherMQ/
 │   ├── config.rs             # Configuration parsing and validation
 │   └── client/
 │       ├── Receiver_1/
-│       │   ├── keys/         # Certificates and keys for receiver
-│       │       └── ( receiver_public.key & receiver_private.key & ca.crt & client.crt & client.key )
 │       │   ├── Receiver.py   # Receiver implementation
 │       │   └── config.json   # Receiver configuration
 │       └── Sender_1/
-│           ├── keys/         # Certificates and keys for sender
-│               └── ( ca.crt & client.crt & client.key )
 │           ├── Sender.py     # Sender implementation
 │           └── config.json   # Sender configuration
 ├── Cargo.toml                # Rust dependencies
 ├── config.toml               # Server configuration
-└── certs/                    # Server certificates
-    └── ( ca.crt & server.crt & server.key & ca.key )
-
+├── create_ca_key/
+│   └── Rust_Key_Maker_X25519                    # Generate x25519 key
+│   └── Rust_CA_Maker_ECDSA_P-384_Multi_Client   # Generate CA certificates
 
 ```
 
@@ -202,7 +202,9 @@ CipherMQ/
 
 ## Usage
 
-### 1. Run the Server
+**Important:** Run these commands in **three separate terminal ** in the specified order (Server → Receiver → Sender).
+
+### 1. Run the Server (**First Terminal**)
 Start the server with TLS support:
 ```bash
 cd root
@@ -211,7 +213,7 @@ cargo run --release
 
 Server listens on configured address, initializes DB connections, and awaits client registrations.
 
-### 2. Run the Receiver
+### 2. Run the Receiver (**Second Terminal**)
 
 Start the receiver to subscribe to messages:
 ```bash
@@ -223,7 +225,7 @@ python Receiver.py
 - Decrypts incoming messages and persists to `data/received_messages.jsonl`.
 - Sends ACKs and handles retries.
 
-### 3. Run the Sender
+### 3. Run the Sender (**Third Terminal**)
 
 ```bash
 cd src/client/Sender_1
