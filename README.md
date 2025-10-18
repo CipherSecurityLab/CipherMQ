@@ -119,12 +119,10 @@ cargo build --release
 Initialize PostgreSQL:
 
 ```sql
-sudo -u postgres psql
+psql -U postgres
 CREATE USER mq_user WITH PASSWORD 'mq_pass';
 CREATE DATABASE ciphermq;
 GRANT ALL PRIVILEGES ON DATABASE ciphermq TO mq_user;
-ALTER USER mq_user CREATEDB;
-\q
 ```
 
 
