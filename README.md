@@ -119,9 +119,12 @@ cargo build --release
 Initialize PostgreSQL:
 
 ```sql
-CREATE DATABASE ciphermq;
+sudo -u postgres psql
 CREATE USER mq_user WITH PASSWORD 'mq_pass';
+CREATE DATABASE ciphermq;
 GRANT ALL PRIVILEGES ON DATABASE ciphermq TO mq_user;
+ALTER USER mq_user CREATEDB;
+\q
 ```
 
 
@@ -217,6 +220,7 @@ Server listens on configured address, initializes DB connections, and awaits cli
 
 Start the receiver to subscribe to messages:
 ```bash
+cd root
 cd src/client/Receiver_1
 python Receiver.py
 ```
@@ -228,6 +232,7 @@ python Receiver.py
 ### 3. Run the Sender (**Third Terminal**)
 
 ```bash
+cd root
 cd src/client/Sender_1
 python Sender.py
 ```
