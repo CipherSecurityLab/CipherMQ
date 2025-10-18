@@ -56,6 +56,7 @@ def setup_logging(config):
 # Load configuration
 try:
     os.makedirs("logs", exist_ok=True)
+    os.makedirs("keys", exist_ok=True)
     os.makedirs("data", exist_ok=True)
     with open("config.json", "r") as config_file:
         config = json.load(config_file)
@@ -73,16 +74,14 @@ except KeyError as e:
     print(f"❌ [RECEIVER] Missing key in configuration file: {e}")
     sys.exit(1)
 
-message_queue = asyncio.Queue()
+# Global variables - queues will be initialized in async context
+message_queue = None
+ack_queue = None
 running = True
 processed_messages = set()
 
-# ACK queue
-ack_queue = asyncio.Queue()
-
 # Load keys
 try:
-
     with open("../../../create_ca_key/Rust_Key_Maker_X25519/receiver_private.key", "r") as key_file:
         private_key_bytes = b64decode(key_file.read())
         PRIVATE_KEY = PrivateKey(private_key_bytes)
@@ -101,6 +100,7 @@ ssl_context.load_cert_chain(
 )
 ssl_context.verify_mode = getattr(ssl, TLS_CONFIG["verify_mode"])
 ssl_context.check_hostname = TLS_CONFIG["check_hostname"]
+
 # Register public key with server
 async def register_public_key(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> bool:
     public_key_b64 = b64encode(PUBLIC_KEY_X25519.public_bytes(
@@ -113,6 +113,7 @@ async def register_public_key(reader: asyncio.StreamReader, writer: asyncio.Stre
     response = (await reader.readline()).decode('utf-8').strip()
     logger.info(f"Server response for public key registration: {response}")
     return response == "Public key registered"
+
 # Configure server (declare queue, exchange, and bind)
 async def configure_server(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     command = f"declare_queue {QUEUE_NAME}\n"
@@ -134,6 +135,7 @@ async def configure_server(reader: asyncio.StreamReader, writer: asyncio.StreamW
     logger.info(f"Server response for binding: {response}")
 
 async def ack_sender_worker(writer: asyncio.StreamWriter):
+    global running, ack_queue
     while running:
         try:
             message_id = await asyncio.wait_for(ack_queue.get(), timeout=0.5)
@@ -156,6 +158,7 @@ async def ack_sender_worker(writer: asyncio.StreamWriter):
             await asyncio.sleep(0.1)
 
 async def process_message(message: str):
+    global message_queue, ack_queue
     message = message.strip()
     
     if not message or not message.startswith("Message:"):
@@ -259,7 +262,7 @@ async def receive_messages(reader: asyncio.StreamReader, writer: asyncio.StreamW
         logger.info("Connection closed")
 
 async def process_messages():
-    global running
+    global running, message_queue
     logger.info("Starting message processing")
     batch_size = 100
     batch = []
@@ -322,6 +325,12 @@ def signal_handler(loop):
     loop.call_later(1, loop.stop)
 
 async def main():
+    global message_queue, ack_queue
+    
+    # Initialize queues in async context
+    message_queue = asyncio.Queue()
+    ack_queue = asyncio.Queue()
+    
     loop = asyncio.get_running_loop()
     signal.signal(signal.SIGINT, lambda s, f: signal_handler(loop))
     

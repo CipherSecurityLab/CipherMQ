@@ -375,8 +375,8 @@ async def send_messages_persistent(num_messages=100):
         logger.info(f"TLS connection established. Cipher: {writer.get_extra_info('cipher')}")
         await configure_server(reader, writer)
 
-        batch_size = 10
-        delay_between_batches = 0.01
+        batch_size = 100
+        delay_between_batches = 0.1
         failed_messages = []
 
         for batch_start in range(0, num_messages, batch_size):
@@ -393,7 +393,7 @@ async def send_messages_persistent(num_messages=100):
                         logger.warning(f"Message {encrypted_message['message_id']} failed, adding to retry queue")
                         failed_messages.append(encrypted_message)
 
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.1)
 
             if batch_end < num_messages:
                 logger.debug(f"Batch completed, waiting {delay_between_batches}s before next batch")
