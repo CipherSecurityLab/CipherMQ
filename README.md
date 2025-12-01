@@ -265,7 +265,7 @@ The following diagrams, located in `docs/diagrams`, illustrate CipherMQ's archit
 - **[Activity Diagram](docs/diagrams/Activity_Diagram.png)**: Details the operational flow, including mTLS connection setup, key registration, and message processing.
 - **[Hybrid Cryptography Diagrams](https://ciphermq.com/docs/index.php/ciphermq-hybrid-cryptography-diagrams/)**: You can see more detailed and visualized diagrams regarding CipherMQ here.
 - **[CipherMQ Full Key Exchange Process](https://ciphermq.com/docs/index.php/ciphermq-full-key-exchange-process/)**: You can see an animated version of key exchange process in the world of CipherMQ here.
-
+- **[CipherMQ Secure Raft Cluster](https://ciphermq.com/docs/index.php/ciphermq-secure-raft-cluster/)**: An animated demonstration of the Raft consensus algorithm running securely within a CipherMQ cluster — showing leader election, replication, failover, and recovery in a fully end-to-end encrypted environment.
 
 ## Future Improvements
 
