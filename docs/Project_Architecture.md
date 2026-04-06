@@ -112,7 +112,6 @@ The server is the core of CipherMQ, managing message routing, delivery, secure c
 - **Receiver**:
   1. Decrypts session key with private key (`receiver_private.key`).
   2. Decrypts message with AES-GCM-256, verifying `tag`.
-- **Security**: Ensures confidentiality and authenticity.
 
 ### 3.5. Public Key Distribution
 - **Receiver**:
