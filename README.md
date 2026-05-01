@@ -205,7 +205,7 @@ CipherMQ/
 
 ## Usage
 
-**Important:** Run these commands in **three separate terminal ** in the specified order (Server → Receiver → Sender).
+**Important:** Run these commands in **three separate terminal** in the specified order (Server → Receiver → Sender).
 
 ### 1. Run the Server (**First Terminal**)
 Start the server with TLS support:
