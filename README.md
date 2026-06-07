@@ -5,7 +5,7 @@
 </p>
 
 
-![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)  ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg) ![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-10%2B-green.svg)
+![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)  ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-10%2B-green.svg)
 
 **CipherMQ** is a secure, high-performance message broker designed for encrypted message transmission between senders and receivers using a push-based architecture. It leverages **hybrid encryption** (x25519 + AES-GCM-256) for message confidentiality and authenticity, combined with **Mutual TLS (mTLS)** for secure client-server communication. The system ensures **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms, with messages temporarily held in memory and routed via exchanges and queues. Metadata and public keys are stored in a PostgreSQL database, Public keys are securely stored with ChaCha20-Poly1305 encryption, and receivers register their public keys with the server for secure distribution to senders.
 
@@ -42,7 +42,7 @@ Initial architecture of CipherMQ is as follows:
 
 - **Mutual TLS (mTLS)**: Ensures secure client-server communication with two-way authentication using ECDSA P-384 certificates.
 - **Hybrid Encryption**: Utilizes x25519 for session key encryption and AES-GCM-256 for message encryption and authentication.
-- **Public Key Registration**: Receivers register their public keys with the server using the `register_key` command, which are securely stored and retrievable by senders via the `get_key` command.
+- **Public Key Registration**: Receivers register their public keys with the server using the `register_public_key` command, which are securely stored and retrievable by senders via the `get_public_key` command.
 - **Zero Message Loss**: Sender retries until server acknowledgment (`ACK <message_id>`), and server retries delivery until receiver acknowledgment (`ack <message_id>`).
 - **Exactly-Once Delivery**: Receiver deduplicates messages using `message_id` to prevent reprocessing.
 - **Batch Processing**: Sender collects and sends messages in batches, ensuring all queued messages are delivered.
@@ -60,7 +60,6 @@ Initial architecture of CipherMQ is as follows:
 
 To run CipherMQ with TLS, you need:
 - [Rust](https://www.rust-lang.org/): Version 1.56 or higher (for the server).
-- [Python](https://www.python.org/): Version 3.8 or higher (for Sender and Receiver).
 - [PostgreSQL](https://www.postgresql.org/): Version 10 or higher.
 - Certificates & Key Generation: Use the provided Rust script to generate mTLS certificates & x25519 key pairs.
 
@@ -119,7 +118,7 @@ cargo build --release
 Initialize PostgreSQL:
 
 ```sql
-sudo psql -U postgres
+sudo -u postgres psql
 CREATE USER mq_user WITH PASSWORD 'mq_pass';
 CREATE DATABASE ciphermq;
 GRANT ALL PRIVILEGES ON DATABASE ciphermq TO mq_user;
@@ -186,19 +185,27 @@ CipherMQ/
 │   ├── auth.rs               # mTLS authentication logic
 │   ├── storage.rs            # PostgreSQL storage for metadata and public keys
 │   ├── config.rs             # Configuration parsing and validation
-│   └── client/
-│       ├── Receiver_1/
-│       │   ├── Receiver.py   # Receiver implementation
-│       │   └── config.json   # Receiver configuration
-│       └── Sender_1/
-│           ├── Sender.py     # Sender implementation
-│           └── config.json   # Sender configuration
+│
 ├── Cargo.toml                # Rust dependencies
 ├── config.toml               # Server configuration
+│
 ├── create_ca_key/
-│   └── Rust_Key_Maker_X25519                    # Generate x25519 key
-│   └── Rust_CA_Maker_ECDSA_P-384_Multi_Client   # Generate CA certificates
-
+│   └── Rust_Key_Maker_X25519                       # Generate x25519 key
+│   └── Rust_CA_Maker_ECDSA_P-384_Multi_Client      # Generate CA certificates
+│
+└── clients/
+    │
+    ├── Receiver_1/
+    │   ├── Cargo.toml        # Rust dependencies
+    │   ├── config.json       # Receiver configuration
+    │   └── src/
+    │       └── main.rs       # Entry point for the receiver
+    │
+    └── Sender_1/       
+        ├── Cargo.toml        # Rust dependencies
+        ├── config.json       # Sender configuration
+        └── src/
+            └── main.rs       # Entry point for the sender
 ```
 
 
@@ -221,10 +228,10 @@ Server listens on configured address, initializes DB connections, and awaits cli
 Start the receiver to subscribe to messages:
 ```bash
 cd root
-cd src/client/Receiver_1
-python Receiver.py
+cd clients/Receiver_1
+cargo run --release
 ```
-- Registers public key via `register_key`.
+- Registers public key.
 - Declares queue & exchange.
 - Decrypts incoming messages and persists to `data/received_messages.jsonl`.
 - Sends ACKs and handles retries.
@@ -233,10 +240,10 @@ python Receiver.py
 
 ```bash
 cd root
-cd src/client/Sender_1
-python Sender.py
+cd clients/Sender_1
+cargo run --release
 ```
-- Fetches receiver public key via `get_key`.
+- Fetches receiver public key.
 
 - Encrypts sample messages (hybrid scheme).
 
@@ -248,12 +255,12 @@ python Sender.py
 ## Architecture
 
 CipherMQ is a message broker system with the following components:
-- **Server** (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`, `auth.rs`, `storage.rs`): A Rust-based broker that handles mTLS connections, message routing, and delivery using exchanges and queues. Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database. The server supports the `register_key` command to store receiver public keys and the `get_key` command to provide them to senders.
-- **Sender** (`sender.py`): Fetches receiver public keys using `get_key`, encrypts messages with hybrid encryption (x25519 + AES-GCM-256), sends them in batches, and ensures delivery with retries.
-- **Receiver** (`receiver.py`): Registers its public key with the server using `register_key`, receives, decrypts, deduplicates, and stores messages in JSONL format, with acknowledgment retries.
+- **Server** (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`, `auth.rs`, `storage.rs`): A Rust-based broker that handles mTLS connections, message routing, and delivery using exchanges and queues. Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database. The server supports the `register_public_key` command to store receiver public keys and the `get_public_key` command to provide them to senders.
+- **Sender** (`main.rs`): Fetches receiver public keys using `get_public_key`, encrypts messages with hybrid encryption (x25519 + AES-GCM-256), sends them in batches, and ensures delivery with retries.
+- **Receiver** (`main.rs`): Registers its public key with the server using `register_public_key`, receives, decrypts, deduplicates, and stores messages in JSONL format, with acknowledgment retries.
 - **mTLS Integration** (`auth.rs`, `connection.rs`): Supports secure two-way authentication using `tokio-rustls` and `WebPkiClientVerifier`.
 - **Hybrid Encryption**: Combines x25519 for session key encryption and AES-GCM-256 for message encryption and authentication.
-- **Key Storage** (`storage.rs`): Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database, accessible via `register_key` and `get_key` commands.
+- **Key Storage** (`storage.rs`): Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database, accessible via `register_public_key` and `get_public_key` commands.
 
 For a detailed architecture overview, see [CipherMQ Project Architecture](docs/Project_Architecture.md).
 

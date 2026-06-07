@@ -316,7 +316,11 @@ pub async fn handle_client(mut stream: impl Connection, state: Arc<RwLock<Server
                         buffer.clear();
                     }
                     Ok(Err(e)) => {
-                        error!(error = %e, "Error reading from stream");
+                        if e.kind() == std::io::ErrorKind::UnexpectedEof || e.to_string().contains("close_notify") {
+                            info!("Client disconnected");
+                        } else {
+                            error!(error = %e, "Error reading from stream");
+                        }
                         state.write().await.decrement_client_count().await;
                         return;
                     }

@@ -1,0 +1,42 @@
+{
+    "receiver_client_ids": ["receiver_1"],
+    "exchange_name": "ciphermq_exchange",
+    "bindings": [
+        {
+            "queue_name": "receiver_1_queue",
+            "exchange_name": "ciphermq_exchange",
+            "routing_key": "receiver_1_key"
+        }
+    ],
+    "server_address": "127.0.0.1",
+    "server_port": 5672,
+    "tls": {
+        "protocol": "PROTOCOL_TLS_CLIENT",
+        "certificate_path": "../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/ca.crt",
+        "client_cert_path": "../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/clients/receiver_1/client.crt",
+        "client_key_path": "../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/clients/receiver_1/client.key",
+        "verify_mode": "CERT_REQUIRED",
+        "check_hostname": false
+    },
+    "logging": {
+        "level": "DEBUG",
+        "info_file_path": "logs/client_info.log",
+        "debug_file_path": "logs/client_debug.log",
+        "error_file_path": "logs/client_error.log",
+        "rotation": "daily",
+        "max_size_mb": 100
+    },
+    "sender": {
+        "num_messages": 200,
+        "max_inflight": 100,
+        "max_retries": 3,
+        "ack_timeout_secs": 3,
+        "tcp_connect_timeout_secs": 120,
+        "batch_size": 10,
+        "batch_delay_ms": 10,
+        "message": {
+            "content_template": "{sender_id}-CipherMQ Sample message with ID: {correlation_id}",
+            "extra_fields": {}
+        }
+    }
+}
