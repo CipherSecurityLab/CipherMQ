@@ -5,9 +5,9 @@
 </p>
 
 
-![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)  ![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-10%2B-green.svg)
+![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)  ![Rust](https://img.shields.io/badge/Rust-1.56%2B-orange.svg) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-10%2B-green.svg)
 
-**CipherMQ** is a secure, high-performance message broker designed for encrypted message transmission between senders and receivers using a push-based architecture. It leverages **hybrid encryption** (x25519 + AES-GCM-256) for message confidentiality and authenticity, combined with **Mutual TLS (mTLS)** for secure client-server communication. The system ensures **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms, with messages temporarily held in memory and routed via exchanges and queues. Metadata and public keys are stored in a PostgreSQL database, Public keys are securely stored with ChaCha20-Poly1305 encryption, and receivers register their public keys with the server for secure distribution to senders.
+**CipherMQ** is a secure, high-performance message broker for encrypted message transmission between senders and receivers using a push-based architecture. It leverages **hybrid encryption** X25519 (Elliptic-Curve Diffie-Hellman) combined with **XSalsa20-Poly1305** (NaCl/libsodium "sealed box" construction) to protect the per-message session key, and **ChaCha20-Poly1305** to encrypt the message payload itself for confidentiality and authenticity, combined with **Mutual TLS (mTLS)** for secure client-server communication. The system ensures **zero message loss** and **exactly-once delivery** through robust acknowledgment mechanisms, with messages temporarily held in memory and routed via exchanges and queues. Message metadata and receivers' public keys are stored in a PostgreSQL database; public keys at rest are additionally encrypted with **AES-256-GCM** before being persisted.
 
 
 
@@ -41,7 +41,7 @@ Initial architecture of CipherMQ is as follows:
 ## Features
 
 - **Mutual TLS (mTLS)**: Ensures secure client-server communication with two-way authentication using ECDSA P-384 certificates.
-- **Hybrid Encryption**: Utilizes x25519 for session key encryption and AES-GCM-256 for message encryption and authentication.
+- **Hybrid Encryption**: X25519 ECDH + XSalsa20-Poly1305 ("sealed box") protects the per-message session key; ChaCha20-Poly1305 encrypts the message payload.
 - **Public Key Registration**: Receivers register their public keys with the server using the `register_public_key` command, which are securely stored and retrievable by senders via the `get_public_key` command.
 - **Zero Message Loss**: Sender retries until server acknowledgment (`ACK <message_id>`), and server retries delivery until receiver acknowledgment (`ack <message_id>`).
 - **Exactly-Once Delivery**: Receiver deduplicates messages using `message_id` to prevent reprocessing.
@@ -256,11 +256,11 @@ cargo run --release
 
 CipherMQ is a message broker system with the following components:
 - **Server** (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`, `auth.rs`, `storage.rs`): A Rust-based broker that handles mTLS connections, message routing, and delivery using exchanges and queues. Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database. The server supports the `register_public_key` command to store receiver public keys and the `get_public_key` command to provide them to senders.
-- **Sender** (`main.rs`): Fetches receiver public keys using `get_public_key`, encrypts messages with hybrid encryption (x25519 + AES-GCM-256), sends them in batches, and ensures delivery with retries.
+- **Sender** (`main.rs`): Fetches receiver public keys using `get_public_key`, hybrid-encrypts messages (X25519 sealed box + ChaCha20-Poly1305), sends them through an async, semaphore-bounded pipeline, and ensures delivery with retries.
 - **Receiver** (`main.rs`): Registers its public key with the server using `register_public_key`, receives, decrypts, deduplicates, and stores messages in JSONL format, with acknowledgment retries.
 - **mTLS Integration** (`auth.rs`, `connection.rs`): Supports secure two-way authentication using `tokio-rustls` and `WebPkiClientVerifier`.
-- **Hybrid Encryption**: Combines x25519 for session key encryption and AES-GCM-256 for message encryption and authentication.
-- **Key Storage** (`storage.rs`): Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database, accessible via `register_public_key` and `get_public_key` commands.
+- **Hybrid Encryption**: X25519 ECDH + XSalsa20-Poly1305 (sealed box) wraps a per-message session key; ChaCha20-Poly1305 encrypts the message content with that session key
+- **Key Storage** (`storage.rs`): Public keys are encrypted with AES-256-GCM and stored in PostgreSQL, accessible via the `register_public_key` and `get_public_key` commands.
 
 For a detailed architecture overview, see [CipherMQ Project Architecture](docs/Project_Architecture.md).
 
