@@ -48,18 +48,18 @@ Initial architecture of CipherMQ is as follows:
 - **Batch Processing**: Sender collects and sends messages in batches, ensuring all queued messages are delivered.
 - **Real-time Processing**: Sender transmits each message immediately upon generation, ensuring instant delivery without queuing or batching delays.
 - **Asynchronous Processing**: Built with Tokio for concurrent, high-performance connection handling.
-- **Push-Based Messaging**: Messages are delivered to connected consumers.
-- **Thread-Safe Data Structures**: Uses `DashMap` for safe multi-threaded operations.
+- **Push-Based Messaging**: Messages are delivered to connected receiver as soon as they are published.
+- **Thread-Safe Data Structures**: Uses `DashMap` for safe multi-threaded operations on the broker's in-memory state.
 - **Flexible Routing**: Supports exchanges and queues with routing keys for efficient message delivery.
-- **Persistent Storage**: Stores message metadata and encrypted public keys in PostgreSQL.
-- **Structured Logging**: JSON-based logging with rotation and level-based filtering.
+- **Persistent Storage**: Stores message metadata and AES-256-GCM-encrypted public keys in PostgreSQL.
+- **Structured Logging**: JSON-based logging with rotation and level-based filtering on the server; JSON file logging plus a readable console layer on both clients.
 
 
 
 ## Prerequisites
 
 To run CipherMQ with TLS, you need:
-- [Rust](https://www.rust-lang.org/): Version 1.56 or higher (for the server).
+- [Rust](https://www.rust-lang.org/): Version 1.56 or higher.
 - [PostgreSQL](https://www.postgresql.org/): Version 10 or higher.
 - Certificates & Key Generation: Use the provided Rust script to generate mTLS certificates & x25519 key pairs.
 
@@ -73,7 +73,7 @@ git clone https://github.com/CipherSecurityLab/CipherMQ.git
 ```
 
 ### 2. Generate mTLS Certificates
-Run the provided script to generate CA certificates, server certificate, and client certificate for mTLS:
+Run the provided Rust certificate-authority tool to generate the CA certificate, server certificate, and one client certificate per Common Name you pass on the command line:
 
 ```bash
 cd root
@@ -168,8 +168,34 @@ openssl rand -base64 32
 ```
 
 ### Client Configuration
- `config.json` file in both `sender/` and `receiver/` directories ensure `exchange_name`, `queue_name`, and `routing_key` match across Sender, Receiver, and server for proper message routing.
+Each client reads `config.json` from its own working directory (`clients/Sender_1/` and `clients/Receiver_1/`). The `exchange_name`, `queue_name`, and `routing_key` values must match across the Sender's `bindings`, the Receiver's top-level fields, and one another so that publishes route to the correct queue.
 
+**Receiver (`clients/Receiver_1/config.json`)**
+ 
+| Field | Description |
+|---|---|
+| `queue_name`, `exchange_name`, `routing_key` | Identify the queue this receiver declares, binds, and consumes from. |
+| `server_address`, `server_port` | Broker TCP endpoint. |
+| `tls.certificate_path` | CA certificate used to verify the server. |
+| `tls.client_cert_path` / `tls.client_key_path` | This receiver's mTLS client certificate and key. |
+| `tls.check_hostname` | When `false`, skips TLS hostname verification (the certificate chain is still validated); intended for development against `localhost` or IP-only endpoints. |
+| `logging.*` | Log level and JSON log file paths. |
+ 
+**Sender (`clients/Sender_1/config.json`)**
+ 
+| Field | Description |
+|---|---|
+| `receiver_client_ids` | One client ID, or an array of client IDs, this sender will fetch public keys for and address messages to. |
+| `exchange_name`, `bindings` | Exchange/queue/routing-key triples the sender declares and binds before publishing. |
+| `server_address`, `server_port`, `tls.*` | Same meaning as on the Receiver. |
+| `sender.num_messages` | Total number of messages to generate and send in this run. |
+| `sender.max_inflight` | Maximum number of messages awaiting ACK at any one time (semaphore-bounded backpressure). |
+| `sender.max_retries` | Retry attempts for an unacknowledged message before it is marked permanently failed. |
+| `sender.ack_timeout_secs` | Seconds to wait for an ACK before a message is treated as unacknowledged. |
+| `sender.tcp_connect_timeout_secs` | Seconds to wait while establishing each TCP connection. |
+| `sender.batch_size` / `sender.batch_delay_ms` | Messages per logical batch and the pause between batches (for progress logging/pacing only). |
+| `sender.message.content_template` | Template string for generated message bodies; supports `{sender_id}`, `{correlation_id}`, `{timestamp}`, `{seq}`, and any key from `extra_fields`. |
+| `sender.message.extra_fields` | Extra key/value pairs available to the template. |
 
 
 
@@ -181,7 +207,7 @@ CipherMQ/
 │   ├── main.rs               # Entry point for the server
 │   ├── server.rs             # Client request handling and message processing
 │   ├── connection.rs         # mTLS connection management
-│   ├── state.rs              # Server state management (queues, exchanges, consumers)
+│   ├── state.rs              # Server state management (queues, exchanges, receiver)
 │   ├── auth.rs               # mTLS authentication logic
 │   ├── storage.rs            # PostgreSQL storage for metadata and public keys
 │   ├── config.rs             # Configuration parsing and validation
@@ -234,7 +260,7 @@ cargo run --release
 - Registers public key.
 - Declares queue & exchange.
 - Decrypts incoming messages and persists to `data/received_messages.jsonl`.
-- Sends ACKs and handles retries.
+- Sends `ack <message_id>` for every newly processed message and automatically reconnects if the connection drops.
 
 ### 3. Run the Sender (**Third Terminal**)
 
@@ -244,20 +270,17 @@ cd clients/Sender_1
 cargo run --release
 ```
 - Fetches receiver public key.
-
-- Encrypts sample messages (hybrid scheme).
-
-- Publishes batches to exchange with routing key.
-
-  
+- Generates and hybrid-encrypts the configured number of sample messages for every receiver.
+- Publishes them over an async pipeline bounded by `max_inflight`, retries unacknowledged messages with exponential backoff, and reports final throughput and failure counts.
+ 
 
 
 ## Architecture
 
 CipherMQ is a message broker system with the following components:
 - **Server** (`main.rs`, `server.rs`, `connection.rs`, `state.rs`, `config.rs`, `auth.rs`, `storage.rs`): A Rust-based broker that handles mTLS connections, message routing, and delivery using exchanges and queues. Public keys are encrypted with ChaCha20-Poly1305 and stored in an PostgreSQL database. The server supports the `register_public_key` command to store receiver public keys and the `get_public_key` command to provide them to senders.
-- **Sender** (`main.rs`): Fetches receiver public keys using `get_public_key`, hybrid-encrypts messages (X25519 sealed box + ChaCha20-Poly1305), sends them through an async, semaphore-bounded pipeline, and ensures delivery with retries.
-- **Receiver** (`main.rs`): Registers its public key with the server using `register_public_key`, receives, decrypts, deduplicates, and stores messages in JSONL format, with acknowledgment retries.
+- **Sender** (`clients/Sender_1/src/main.rs`): Fetches receiver public keys using `get_public_key`, hybrid-encrypts messages (X25519 sealed box + ChaCha20-Poly1305), sends them through an async, semaphore-bounded pipeline, and ensures delivery with retries.
+- **Receiver** (`clients/Receiver_1/src/main.rs`): Registers its public key with the server using `register_public_key`, receives, decrypts, deduplicates, and stores messages in JSONL format, with acknowledgment retries.
 - **mTLS Integration** (`auth.rs`, `connection.rs`): Supports secure two-way authentication using `tokio-rustls` and `WebPkiClientVerifier`.
 - **Hybrid Encryption**: X25519 ECDH + XSalsa20-Poly1305 (sealed box) wraps a per-message session key; ChaCha20-Poly1305 encrypts the message content with that session key
 - **Key Storage** (`storage.rs`): Public keys are encrypted with AES-256-GCM and stored in PostgreSQL, accessible via the `register_public_key` and `get_public_key` commands.
