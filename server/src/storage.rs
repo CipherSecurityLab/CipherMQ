@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Sender};
-use tracing::{error, info, debug, warn};
+use tracing::{error, info, debug};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use thiserror::Error;
@@ -53,13 +53,16 @@ enum StorageCommand {
     UpdateDeliveredTimeAsync(String, String),
     UpdateAcknowledgedTimeAsync(String, String),
     // ✅ Keep synchronous versions for critical operations
+    #[allow(dead_code)]
     UpdateDeliveredTime(String, String, Sender<Result<(), StorageError>>),
+    #[allow(dead_code)]
     UpdateAcknowledgedTime(String, String, Sender<Result<(), StorageError>>),
     LoadUnacknowledgedMetadata(Sender<Result<Vec<MessageMetadata>, StorageError>>),
     GetClientIdForMessage(String, Sender<Result<Option<String>, StorageError>>),
     SavePublicKey(PublicKeyData, Sender<Result<(), StorageError>>),
     GetPublicKey(String, Sender<Result<Option<String>, StorageError>>),
     // ✅ NEW: Flush buffered updates
+    #[allow(dead_code)]
     FlushUpdates,
 }
 
@@ -156,6 +159,7 @@ impl Storage {
                     return;
                 }
             };
+            #[allow(deprecated)]
             let key = Key::<Aes256Gcm>::from_slice(&aes_key);
             let cipher = Aes256Gcm::new(key);
 
@@ -286,6 +290,7 @@ impl Storage {
                             StorageCommand::SavePublicKey(key_data, reply) => {
                                 let result = async {
                                     let nonce_bytes: [u8; 12] = rand::thread_rng().gen();
+                                    #[allow(deprecated)]
                                     let nonce = Nonce::from_slice(&nonce_bytes);
                                     let public_key_bytes = BASE64.decode(&key_data.public_key)
                                         .map_err(|e| StorageError::EncryptionError(format!("Invalid public key: {}", e)))?;
@@ -336,6 +341,7 @@ impl Storage {
                                                     .map_err(|e| StorageError::EncryptionError(format!("Invalid nonce: {}", e)))?;
                                                 let tag = BASE64.decode(&tag_b64)
                                                     .map_err(|e| StorageError::EncryptionError(format!("Invalid tag: {}", e)))?;
+                                                #[allow(deprecated)]
                                                 let nonce = Nonce::from_slice(&nonce_bytes);
                                                 let encrypted_bytes = [ciphertext, tag].concat();
                                                 let decrypted_bytes = cipher.decrypt(nonce, encrypted_bytes.as_slice())
@@ -493,6 +499,7 @@ impl Storage {
     }
 
     // Keep synchronous version for critical paths
+    #[allow(dead_code)]
     pub async fn update_delivered_time(&self, message_id: &str, time: &str) -> Result<(), StorageError> {
         let (reply_tx, mut reply_rx) = mpsc::channel(1);
         self.sender
@@ -502,6 +509,7 @@ impl Storage {
         reply_rx.recv().await.ok_or(StorageError::ChannelReceive)?
     }
 
+    #[allow(dead_code)]
     pub async fn update_acknowledged_time(&self, message_id: &str, time: &str) -> Result<(), StorageError> {
         let (reply_tx, mut reply_rx) = mpsc::channel(1);
         self.sender

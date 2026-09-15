@@ -21,6 +21,7 @@ pub struct EncryptedInputData {
 
 #[derive(Clone)]
 pub struct MessageStatus {
+    #[allow(dead_code)]
     pub sent_time: Option<Instant>,
     pub delivered_time: Option<Instant>,
     pub acknowledged_time: Option<Instant>,
@@ -80,7 +81,7 @@ impl ServerState {
         
         // Task 1: Cleanup old messages
         let state_clone = state.clone();
-        let max_queue_size = max_queue_size.max(10000);
+        let _max_queue_size = max_queue_size.max(10000);
         tokio::spawn(async move {
             state_clone.cleanup_old_messages(Duration::from_secs(3000)).await;
         });
@@ -423,6 +424,7 @@ impl ServerState {
     }
 
     /// ✅ OPTIMIZED: No lock held during I/O
+    #[allow(dead_code)]
     pub async fn consume(&self, queue_name: &str) -> Option<(String, EncryptedInputData)> {
         // ✅ Pop from queue (lock released immediately)
         let message = if let Some(mut queue) = self.queues.get_mut(queue_name) {
@@ -495,6 +497,7 @@ impl ServerState {
         debug!("Client disconnected, total: {}", previous.saturating_sub(1));
     }
     
+    #[allow(dead_code)]
     pub fn get_client_count(&self) -> usize {
         self.connected_clients.load(Ordering::SeqCst)
     }
@@ -520,6 +523,7 @@ impl ServerState {
             .map_err(|e| format!("Failed to get public key: {}", e))
     }
     
+    #[allow(dead_code)]
     pub fn cleanup_consumers_for_queue(&self, queue_name: &str) -> usize {
         if let Some(mut consumers) = self.consumers.get_mut(queue_name) {
             let initial_count = consumers.len();
@@ -534,6 +538,7 @@ impl ServerState {
         }
     }
     
+    #[allow(dead_code)]
     pub fn get_consumer_stats(&self) -> Vec<(String, usize, usize)> {
         self.consumers.iter().map(|entry| {
             let queue_name = entry.key().clone();

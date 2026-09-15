@@ -205,6 +205,7 @@ impl<'de> Deserialize<'de> for ReceiverIds {
 struct PlainMessage {
     correlation_id: String,
     sender_id: String,
+    #[allow(dead_code)]
     sent_timestamp: f64,
     content: String,
 }
@@ -1078,7 +1079,11 @@ async fn send_messages_async_pipeline(
     // ─── Shutdown ────────────────────────────────────────────────────────────
     drop(ack_tx); // Close the channel so the ACK task can exit.
     ack_task.await.ok();
+
+    // Properly close all TLS connections with close_notify.
     main_writer.lock().await.shutdown().await.ok();
+    writer.lock().await.shutdown().await.ok();
+    ack_writer.lock().await.shutdown().await.ok();
 
     let elapsed = start.elapsed().as_secs_f64();
     info!(

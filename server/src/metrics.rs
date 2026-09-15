@@ -29,6 +29,7 @@ impl Metrics {
     pub fn new() -> Self {
         Self { messages_published: AtomicU64::new(0), messages_acked: AtomicU64::new(0), messages_delivered: AtomicU64::new(0), errors_total: AtomicU64::new(0), connections_total: AtomicU64::new(0), connections_rejected_rate_limit: AtomicU64::new(0), connections_rejected_conn_limit: AtomicU64::new(0), requests_rate_limited: AtomicU64::new(0), snapshot: Arc::new(RwLock::new(ServerSnapshot::default())), start_time: Instant::now() }
     }
+    #[allow(dead_code)]
     pub async fn update_snapshot(&self, snapshot: ServerSnapshot) { *self.snapshot.write().await = snapshot; }
     pub async fn render_prometheus(&self) -> String {
         let s = self.snapshot.read().await;

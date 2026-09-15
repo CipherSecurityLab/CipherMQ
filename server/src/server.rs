@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, error, info, warn, instrument};
 use crate::connection::Connection;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::io::AsyncWriteExt;
 use crate::HeartbeatMonitor;
 use crate::acl::{AclManager, AuthResult};
 use crate::{metrics::Metrics, rate_limiter::RateLimiter};
@@ -367,7 +367,11 @@ pub async fn handle_client(
                         buffer.clear();
                     }
                     Ok(Err(e)) => {
-                        error!(error = %e, "Error reading from stream");
+                        if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                            info!(client_id = %client_id, "Client disconnected (TLS closed)");
+                        } else {
+                            error!(client_id = %client_id, error = %e, "Error reading from stream");
+                        }
                         state.decrement_client_count();
                         heartbeat_monitor.remove_client(&client_id);
                         return;

@@ -16,7 +16,9 @@ impl RateLimiter {
  pub fn new(config:RateLimitConfig)->Self { Self { config, global:Arc::new(RwLock::new(HashMap::new())), publish:Arc::new(RwLock::new(HashMap::new())), connections:Arc::new(RwLock::new(Connections::default())) } }
  pub async fn check(&self, cn:&str, _ip:&str, is_publish:bool)->RateLimitResult { let mut g=self.global.write().await; if !g.entry(cn.into()).or_insert_with(||Bucket::new(self.config.global_burst,self.config.global_rps)).take(){return RateLimitResult::RateLimited} drop(g); if is_publish { let mut p=self.publish.write().await; if !p.entry(cn.into()).or_insert_with(||Bucket::new(self.config.publish_burst,self.config.publish_rps)).take(){return RateLimitResult::RateLimited} } RateLimitResult::Allowed }
  pub async fn check_connection(&self,cn:&str,ip:&str)->RateLimitResult { let mut c=self.connections.write().await; if self.config.max_connections_per_ip>0 && c.by_ip.get(ip).copied().unwrap_or(0)>=self.config.max_connections_per_ip{return RateLimitResult::ConnectionLimit} if self.config.max_connections_per_cn>0 && c.by_cn.get(cn).copied().unwrap_or(0)>=self.config.max_connections_per_cn{return RateLimitResult::ConnectionLimit} *c.by_ip.entry(ip.into()).or_default()+=1; *c.by_cn.entry(cn.into()).or_default()+=1; RateLimitResult::Allowed }
+ #[allow(dead_code)]
  pub async fn release_connection(&self,cn:&str,ip:&str){let mut c=self.connections.write().await; dec(&mut c.by_ip,ip);dec(&mut c.by_cn,cn)}
  pub async fn connection_stats(&self)->(HashMap<String,usize>,HashMap<String,usize>){let c=self.connections.read().await;(c.by_ip.clone(),c.by_cn.clone())}
 }
+#[allow(dead_code)]
 fn dec(m:&mut HashMap<String,usize>,k:&str){if let Some(v)=m.get_mut(k){if *v>1{*v-=1}else{m.remove(k);}}}

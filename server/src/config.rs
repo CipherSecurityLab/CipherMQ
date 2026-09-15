@@ -61,10 +61,13 @@ pub struct PerformanceConfig {
     #[serde(default = "default_heartbeat_timeout")]
     pub heartbeat_timeout: u64,
     #[serde(default = "default_cleanup_interval")]
+    #[allow(dead_code)]
     pub cleanup_interval: u64,
     #[serde(default = "default_consumer_cleanup_interval")]
+    #[allow(dead_code)]
     pub consumer_cleanup_interval: u64,
     #[serde(default = "default_idle_timeout")]
+    #[allow(dead_code)]
     pub idle_timeout_sec: u64,
 }
 
@@ -95,6 +98,7 @@ impl Default for AdminConfig {
 #[derive(Deserialize, Debug, Clone)]
 pub struct RateLimitConfig {
     #[serde(default)]
+    #[allow(dead_code)]
     pub enabled: bool,
     #[serde(default = "default_global_rps")]
     pub global_rps: f64,
