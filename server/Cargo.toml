@@ -1,6 +1,6 @@
 [package]
 name = "ciphermq"
-version = "1.5.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -26,3 +26,9 @@ aes-gcm = "0.10.3"
 base64 = "0.22.1" 
 rand = "0.8.5"
 x509-parser = "0.16"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "macros"] }
+
+
+[profile.release]
+debug = true
+

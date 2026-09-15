@@ -1,0 +1,43 @@
+[package]
+name = "ciphermq-admin"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "ciphermq-admin"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+
+# TLS
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "ring", "logging"] }
+rustls = { version = "0.23", features = ["ring", "tls12"] }
+rustls-pemfile = "2"
+ring = "0.17"
+
+# Web server
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# X.509 — read CN from client certificate
+x509-parser = "0.16"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+opt-level = 3
+lto = true

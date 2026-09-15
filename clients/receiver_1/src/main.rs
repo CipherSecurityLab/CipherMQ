@@ -2,10 +2,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::path::Path;
+
 use anyhow::{Context, Result, anyhow};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, aead::Aead, Nonce};
 use chrono::Utc;
+// NaCl SealedBox implemented manually to match libsodium crypto_box_seal exactly:
+//   ciphertext = ephemeral_pk(32) || box(message, nonce=blake2b(epk||rpk)[0:24], epk, rsk)
 use x25519_dalek::{StaticSecret, PublicKey as X25519PublicKey};
 use blake2::{Blake2b, Digest};
 use xsalsa20poly1305::XSalsa20Poly1305;
@@ -93,9 +96,9 @@ fn setup_logging(config: &LoggingConfig) -> Result<()> {
         .with_target(false)
         .with_ansi(true);
 
-    // File layer (append, JSON-like format) writes all levels to the info log;
-    // per level splitting requires a custom appender. The tracing appender crate
-    // supports rolling files; here we create a non rolling appender for simplicity
+    // File layer (append, JSON-like format) — writes all levels to the info log;
+    // per-level splitting requires a custom appender. The tracing-appender crate
+    // supports rolling files; here we create a non-rolling appender for simplicity
     // and match the Python behaviour of writing everything to one file per run.
     let file = std::fs::OpenOptions::new()
         .create(true)
@@ -167,7 +170,7 @@ fn build_tls_connector(cfg: &TlsConfig) -> Result<TlsConnector> {
     Ok(TlsConnector::from(Arc::new(tls_config)))
 }
 
-// ─── Dangerous verifier (check_hostname=False) ──────────────
+// ─── Dangerous verifier (mirrors Python check_hostname=False) ──────────────
 
 mod danger {
     use rustls::{
@@ -240,10 +243,10 @@ mod danger {
 // ─── Key loading ───────────────────────────────────────────────────────────
 
 /// Load the NaCl/X25519 private key used for SealedBox decryption.
-/// The file stores the 32 byte raw key encoded as Base64.
+/// The file stores the 32-byte raw key encoded as Base64.
 fn load_private_key() -> Result<[u8; 32]> {
     let raw = std::fs::read_to_string("../../create_ca_key/Rust_Key_Maker_X25519/receiver_private.key")
-        .context("Cannot open create_ca_key/Rust_Key_Maker_X25519/receiver_private.key")?;
+        .context("Cannot open keys/receiver_private.key")?;
     let bytes = BASE64
         .decode(raw.trim())
         .context("Invalid Base64 in private key file")?;
@@ -256,7 +259,7 @@ fn load_private_key() -> Result<[u8; 32]> {
 /// Load the raw X25519 public key (used only for the register_public_key command).
 fn load_public_key_bytes() -> Result<Vec<u8>> {
     let raw = std::fs::read_to_string("../../create_ca_key/Rust_Key_Maker_X25519/receiver_public.key")
-        .context("Cannot open create_ca_key/Rust_Key_Maker_X25519/receiver_public.key")?;
+        .context("Cannot open keys/receiver_public.key")?;
     BASE64.decode(raw.trim()).context("Invalid Base64 in public key file")
 }
 
@@ -320,7 +323,7 @@ where
 
 /// Decrypt one incoming message envelope using:
 /// 1. NaCl SealedBox to unwrap the ephemeral session key.
-/// 2. ChaCha20 Poly1305 AEAD to decrypt the payload.
+/// 2. ChaCha20-Poly1305 AEAD to decrypt the payload.
 fn decrypt_message(envelope: &EncryptedEnvelope, private_key: &[u8; 32]) -> Result<String> {
     let enc_session_key = BASE64
         .decode(&envelope.enc_session_key)
@@ -332,6 +335,7 @@ fn decrypt_message(envelope: &EncryptedEnvelope, private_key: &[u8; 32]) -> Resu
         .decode(&envelope.ciphertext)
         .context("Bad Base64 in ciphertext")?;
 
+    // --- NaCl SealedBox decryption (matches Python nacl.public.SealedBox / libsodium crypto_box_seal) ---
     // Layout: enc_session_key = ephemeral_pk (32 bytes) || box_ciphertext
     if enc_session_key.len() < 32 {
         return Err(anyhow!("SealedBox ciphertext too short"));
@@ -346,20 +350,23 @@ fn decrypt_message(envelope: &EncryptedEnvelope, private_key: &[u8; 32]) -> Resu
     // Shared secret via X25519
     let shared = rsk.diffie_hellman(&epk);
 
-    // NaCl nonce = first 24 bytes of blake2b 512(epk || rpk)
+    // NaCl nonce = first 24 bytes of blake2b-512(epk || rpk)
     let mut hasher = Blake2b::<blake2::digest::consts::U64>::new();
     Digest::update(&mut hasher, epk_bytes);
     Digest::update(&mut hasher, rpk.as_bytes());
     let hash = hasher.finalize();
     let box_nonce = GenericArray::clone_from_slice(&hash[..24]);
 
+    // NaCl box key = HSalsa20(shared_secret, zero_nonce) — XSalsa20Poly1305 does this internally
+    // Build the 32-byte key from the shared secret using NaCl's crypto_box key derivation
+    // XSalsa20Poly1305::new expects the raw 32-byte shared secret
     let box_key = GenericArray::clone_from_slice(shared.as_bytes());
     let box_cipher = XSalsa20Poly1305::new(&box_key);
     let session_key_bytes = box_cipher
         .decrypt(&box_nonce, box_ct)
         .map_err(|e| anyhow!("SealedBox inner-box decryption failed: {}", e))?;
 
-    // --- ChaCha20 Poly1305 decryption of the actual message payload ---
+    // --- ChaCha20-Poly1305 decryption of the actual message payload ---
     let chacha_key = chacha20poly1305::Key::from_slice(&session_key_bytes);
     let cipher = ChaCha20Poly1305::new(chacha_key);
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -394,9 +401,36 @@ async fn ack_sender_worker(
                 }
                 debug!("Sent ACK for {}", message_id);
             }
-            Ok(None) => break, 
-            Err(_) => continue, 
+            Ok(None) => break, // Channel closed
+            Err(_) => continue, // Timeout — loop
         }
+    }
+}
+
+// ─── Heartbeat task ────────────────────────────────────────────────────────
+
+async fn heartbeat_task(
+    writer: Arc<Mutex<tokio::io::WriteHalf<tokio_rustls::client::TlsStream<TcpStream>>>>,
+    interval_secs: u64,
+    running: Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+
+    while running.load(Ordering::Relaxed) {
+        sleep(Duration::from_secs(interval_secs)).await;
+        if !running.load(Ordering::Relaxed) {
+            break;
+        }
+        let mut w = writer.lock().await;
+        if let Err(e) = w.write_all(b"heartbeat\n").await {
+            error!("Error sending heartbeat: {}", e);
+            break;
+        }
+        if let Err(e) = w.flush().await {
+            error!("Error flushing heartbeat: {}", e);
+            break;
+        }
+        debug!("Sent heartbeat");
     }
 }
 
@@ -453,14 +487,14 @@ async fn process_messages_task(
                 }
             }
             Ok(None) => {
-                // Channel closed flush remaining and exit
+                // Channel closed — flush remaining and exit
                 if !batch.is_empty() {
                     flush_batch(&mut writer, &mut batch).await;
                 }
                 break;
             }
             Err(_) => {
-                // Timeout flush pending batch
+                // Timeout — flush pending batch
                 if !batch.is_empty() {
                     flush_batch(&mut writer, &mut batch).await;
                 }
@@ -529,6 +563,10 @@ async fn receive_loop(
     let ack_running = Arc::clone(&running);
     let ack_handle = tokio::spawn(ack_sender_worker(ack_rx, ack_writer, ack_running));
 
+    let hb_writer = Arc::clone(&writer);
+    let hb_running = Arc::clone(&running);
+    let hb_handle = tokio::spawn(heartbeat_task(hb_writer, 30, hb_running));
+
     // --- Handshake ----------------------------------------------------------
     {
         let mut w = writer.lock().await;
@@ -536,6 +574,7 @@ async fn receive_loop(
             error!("Public key registration failed");
             running.store(false, Ordering::Relaxed);
             ack_handle.abort();
+            hb_handle.abort();
             return Err(anyhow!("Public key registration failed"));
         }
         configure_server(
@@ -566,7 +605,7 @@ async fn receive_loop(
         let mut line = String::new();
         match tokio::time::timeout(Duration::from_millis(500), reader.read_line(&mut line)).await {
             Err(_) => {
-                // Timeout no data
+                // Timeout — no data
                 consecutive_empty += 1;
                 if consecutive_empty >= 120 {
                     debug!("No messages for 60 seconds");
@@ -650,7 +689,10 @@ async fn receive_loop(
     // --- Cleanup ------------------------------------------------------------
     running.store(false, Ordering::Relaxed);
     ack_handle.abort();
-    drop(writer);
+    hb_handle.abort();
+
+    let mut w = writer.lock().await;
+    let _ = w.shutdown().await;
 
     info!("Connection closed");
     Ok(())
@@ -713,8 +755,8 @@ async fn main() -> Result<()> {
                 error!("TCP connection to {} failed: {}", addr, e);
             }
             Ok(tcp) => {
-                let server_name = rustls::pki_types::ServerName::try_from("localhost")
-                    .expect("Invalid server name");
+                let server_name = rustls::pki_types::ServerName::try_from(config.server_address.clone())
+                    .unwrap_or_else(|_| rustls::pki_types::ServerName::try_from("localhost".to_string()).expect("Invalid server name"));
                 match connector.connect(server_name, tcp).await {
                     Err(e) => {
                         error!("TLS handshake failed: {}", e);

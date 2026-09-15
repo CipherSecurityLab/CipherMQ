@@ -1,1 +1,7 @@
 target/
+logs/
+data/
+certs/
+*.key
+*.crt
+

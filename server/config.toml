@@ -3,12 +3,12 @@ address = "127.0.0.1:5672"
 connection_type = "tls"
 
 [tls]
-cert_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.crt"
-key_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.key"
-ca_cert_path = "./create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/ca.crt"
+cert_path = "../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.crt"
+key_path = "../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/server.key"
+ca_cert_path = "../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/ca.crt"
 
 [logging]
-level = "debug"
+level = "INFO"
 info_file_path = "logs/server_info.log"
 debug_file_path = "logs/server_debug.log"
 error_file_path = "logs/server_error.log"
@@ -21,6 +21,32 @@ port = 5432
 user = "YOUR_USER" 
 password = "YOUR_PASS"
 dbname = "ciphermq"
+
+[performance]
+max_queue_size = 10000
+heartbeat_timeout = 60
+cleanup_interval = 3000
+consumer_cleanup_interval = 60
+idle_timeout_sec = 60
+
+[admin]
+enabled = true
+address = "127.0.0.1:9091"
+allowed_cns = ["admin"]
+
+[rate_limit]
+enabled = true
+global_rps = 100.0
+global_burst = 200.0
+publish_rps = 50.0
+publish_burst = 100.0
+max_connections_per_ip = 50
+max_connections_per_cn = 20
+
+[acl]
+sender_cns = ["sender_1"]
+receiver_cns = ["receiver_1"]
+admin_cns = ["admin"]
 
 [encryption]
 algorithm = "x25519_chacha20_poly1305"

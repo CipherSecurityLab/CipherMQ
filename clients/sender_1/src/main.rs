@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use blake2::{Blake2b, Digest};
@@ -52,35 +53,32 @@ struct LoggingConfig {
     max_size_mb: u64,
 }
 
-/// Pipeline and message-generation settings.
+/// Message generation and sending pipeline configuration.
+/// All values that were previously hardcoded are defined here.
 #[derive(Debug, Deserialize, Clone)]
 struct SenderConfig {
-    /// Total number of messages to send in this run.
+    /// Total number of messages to send.
     num_messages: usize,
 
-    /// Maximum number of messages that may be in-flight (sent but not yet ACK'd)
-    /// at any one time.  Backed by a Semaphore; the sender blocks here when the
-    /// window is full, giving natural backpressure without busy-waiting.
+    /// Maximum number of messages in flight at the same time (in-flight window).
     max_inflight: usize,
 
-    /// How many times to retry a message that never received an ACK before
-    /// marking it as permanently failed.
+    /// Maximum number of retry attempts for each message.
     max_retries: u32,
 
-    /// Seconds to wait for an ACK before considering a message unacknowledged.
+    /// ACK wait timeout in seconds.
     ack_timeout_secs: u64,
 
-    /// Seconds to wait while establishing the TCP connection before aborting.
+    /// TCP connection timeout in seconds.
     tcp_connect_timeout_secs: u64,
 
-    /// Number of messages per batch; used only for progress logging and the
-    /// optional inter-batch delay it does not affect encryption or delivery.
+    /// Size of each batch for progress logging.
     batch_size: usize,
 
-    /// Milliseconds to pause between batches.  Set to 0 to disable.
+    /// Delay between batches in milliseconds.
     batch_delay_ms: u64,
 
-    /// Message content settings (template + extra fields).
+    /// Message template configuration.
     message: MessageConfig,
 }
 
@@ -99,26 +97,21 @@ impl Default for SenderConfig {
     }
 }
 
-/// Message content configuration.
+/// Message content generation configuration.
 ///
-/// `content_template` is a plain string that may contain the following
-/// built-in placeholders, all replaced at generation time:
-///
-/// | Placeholder        | Value                                              |
-/// |--------------------|----------------------------------------------------|
-/// | `{sender_id}`      | CN extracted from the client TLS certificate       |
-/// | `{correlation_id}` | First 8 chars of a random UUID v4                  |
-/// | `{timestamp}`      | Unix time in seconds (3 decimal places)            |
-/// | `{seq}`            | 1-based sequence number within this run            |
-
+/// The message template (`content_template`) may contain the following placeholders:
+///   `{sender_id}`      — sender identity from the TLS certificate
+///   `{correlation_id}` — a short UUID (8 characters)
+///   `{timestamp}`      — Unix timestamp in seconds (decimal)
+///   `{seq}`            — message sequence number in this run
+///   Each custom key from `extra_fields` is also substituted as `{key}`.
 #[derive(Debug, Deserialize, Clone)]
 struct MessageConfig {
-    /// Template string for the plaintext message content.
-    /// Falls back to the legacy hardcoded string when omitted from config.
+    /// Message text template. The default matches the previous hardcoded value.
     #[serde(default = "MessageConfig::default_template")]
     content_template: String,
 
-    /// Arbitrary key-value pairs injected into the template as `{key}`.
+    /// Additional custom fields to substitute in the template.
     #[serde(default)]
     extra_fields: HashMap<String, String>,
 }
@@ -137,7 +130,7 @@ impl MessageConfig {
         "{sender_id}-CipherMQ Sample message with ID: {correlation_id}".to_string()
     }
 
-    /// Substitute all placeholders in the template and return the rendered string.
+    /// Replaces placeholders in the template with actual values.
     fn render(
         &self,
         sender_id: &str,
@@ -167,12 +160,12 @@ struct Config {
     logging: LoggingConfig,
     #[serde(default)]
     receiver_client_ids: ReceiverIds,
-    /// If the "sender" key is absent from config.json, SenderConfig::default()
-    /// is used, keeping backward compatibility with older config files.
+    /// Default values are used when this is absent from config.json.
     #[serde(default)]
     sender: SenderConfig,
 }
 
+/// Accepts both `"receiver_1"` (string) and `["r1","r2"]` (array) formats.
 #[derive(Debug, Clone)]
 struct ReceiverIds(Vec<String>);
 
@@ -200,7 +193,7 @@ impl<'de> Deserialize<'de> for ReceiverIds {
                 Ok(ReceiverIds(ids))
             }
             _ => Err(Error::custom(
-                "receiver_client_ids must be a string or an array of strings",
+                "receiver_client_ids must be string or array of strings",
             )),
         }
     }
@@ -212,7 +205,6 @@ impl<'de> Deserialize<'de> for ReceiverIds {
 struct PlainMessage {
     correlation_id: String,
     sender_id: String,
-    #[allow(dead_code)]
     sent_timestamp: f64,
     content: String,
 }
@@ -232,7 +224,6 @@ struct EncryptedMessage {
 // ─── Logging ───────────────────────────────────────────────────────────────
 
 fn setup_logging(cfg: &LoggingConfig) -> Result<()> {
-    // Ensure all log directories exist before opening any files.
     for path in [&cfg.info_file_path, &cfg.debug_file_path, &cfg.error_file_path] {
         if let Some(p) = Path::new(path).parent() {
             std::fs::create_dir_all(p)?;
@@ -285,20 +276,22 @@ fn build_tls_connector(cfg: &TlsConfig) -> Result<TlsConnector> {
             .with_context(|| format!("Cannot open client key {}", cfg.client_key_path))?,
     );
     let mut keys = pkcs8_private_keys(&mut key_reader).collect::<Result<Vec<_>, _>>()?;
-    if keys.is_empty() {
-        return Err(anyhow!(
-            "No PKCS8 private key found in {}",
-            cfg.client_key_path
-        ));
-    }
-    let private_key = rustls::pki_types::PrivateKeyDer::Pkcs8(keys.remove(0));
+    let private_key = if let Some(key) = keys.pop() {
+        rustls::pki_types::PrivateKeyDer::Pkcs8(key)
+    } else {
+        let mut reader = StdBufReader::new(File::open(&cfg.client_key_path)?);
+        let mut rsa = rustls_pemfile::rsa_private_keys(&mut reader).collect::<Result<Vec<_>, _>>()?;
+        if let Some(key) = rsa.pop() {
+            rustls::pki_types::PrivateKeyDer::Pkcs1(key)
+        } else {
+            let mut reader = StdBufReader::new(File::open(&cfg.client_key_path)?);
+            let mut ec = rustls_pemfile::ec_private_keys(&mut reader).collect::<Result<Vec<_>, _>>()?;
+            rustls::pki_types::PrivateKeyDer::Sec1(ec.pop().ok_or_else(|| anyhow!("No private key found in {}", cfg.client_key_path))?)
+        }
+    };
     let mut tls_config = ClientConfig::builder()
         .with_root_certificates(roots)
         .with_client_auth_cert(client_certs, private_key)?;
-
-    // When check_hostname is disabled (dev environments, IP-only endpoints),
-    // install a custom verifier that still validates the certificate chain but
-    // skips the ServerName check.
     if !cfg.check_hostname {
         tls_config
             .dangerous()
@@ -315,8 +308,6 @@ mod danger {
     };
     use std::sync::Arc;
 
-    /// A certificate verifier that accepts any presented certificate without
-    /// checking that it matches the requested server name.
     #[derive(Debug)]
     pub struct NoHostnameVerifier {
         inner: Arc<rustls::crypto::CryptoProvider>,
@@ -375,8 +366,6 @@ mod danger {
 
 // ─── Extract CN from client certificate ───────────────────────────────────
 
-/// Parse the client TLS certificate and return the Common Name (CN) field,
-/// which is used as the sender's logical identity throughout the protocol.
 fn extract_client_id(tls_cfg: &TlsConfig) -> Result<String> {
     let pem = std::fs::read(&tls_cfg.client_cert_path)
         .with_context(|| format!("Cannot read cert {}", tls_cfg.client_cert_path))?;
@@ -399,33 +388,23 @@ fn extract_client_id(tls_cfg: &TlsConfig) -> Result<String> {
     Err(anyhow!("No Common Name found in client certificate"))
 }
 
-// ─── NaCl SealedBox encrypt ────────────────────────────────────────────────
-
-/// Encrypt `plaintext` for `recipient_pub_bytes` using the NaCl SealedBox
-/// construction (X25519 ECDH + XSalsa20-Poly1305).
-///
-/// Output layout: [ ephemeral_public_key (32 B) | box_ciphertext ]
+// ─── NaCl SealedBox ENCRYPT ────────────────────────────────────────────────
 
 fn sealed_box_encrypt(plaintext: &[u8], recipient_pub_bytes: &[u8; 32]) -> Result<Vec<u8>> {
     let epk_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
     let epk_public = X25519PublicKey::from(&epk_secret);
     let rpk = X25519PublicKey::from(*recipient_pub_bytes);
     let shared = epk_secret.diffie_hellman(&rpk);
-
-    // Derive a deterministic nonce from the two public keys (matches libsodium behaviour).
     let mut hasher = Blake2b::<blake2::digest::consts::U64>::new();
     Digest::update(&mut hasher, epk_public.as_bytes());
     Digest::update(&mut hasher, rpk.as_bytes());
     let hash = hasher.finalize();
-
     let box_nonce = GenericArray::clone_from_slice(&hash[..24]);
     let box_key = GenericArray::clone_from_slice(shared.as_bytes());
     let cipher = XSalsa20Poly1305::new(&box_key);
     let box_ct = cipher
         .encrypt(&box_nonce, plaintext)
         .map_err(|e| anyhow!("SealedBox encrypt failed: {}", e))?;
-
-    // Prepend the ephemeral public key so the receiver can reconstruct the shared secret.
     let mut out = Vec::with_capacity(32 + box_ct.len());
     out.extend_from_slice(epk_public.as_bytes());
     out.extend_from_slice(&box_ct);
@@ -434,7 +413,8 @@ fn sealed_box_encrypt(plaintext: &[u8], recipient_pub_bytes: &[u8; 32]) -> Resul
 
 // ─── Message generation ────────────────────────────────────────────────────
 
-/// Build a [`PlainMessage`] for `seq` (1-based) using the configured template.
+/// Generates a plain message using `MessageConfig`.
+/// The `seq` parameter is the sequence number in this run (starting at 1).
 fn generate_message(client_id: &str, msg_cfg: &MessageConfig, seq: usize) -> PlainMessage {
     let correlation_id = Uuid::new_v4().to_string()[..8].to_string();
     let sent_timestamp = Utc::now().timestamp_millis() as f64 / 1000.0;
@@ -449,13 +429,6 @@ fn generate_message(client_id: &str, msg_cfg: &MessageConfig, seq: usize) -> Pla
 
 // ─── Encryption ────────────────────────────────────────────────────────────
 
-/// Hybrid-encrypt a single [`PlainMessage`] for one receiver.
-///
-/// Scheme:
-///   1. Generate a random 256-bit session key and 96-bit nonce.
-///   2. Encrypt the plaintext with ChaCha20-Poly1305 (session key + nonce).
-///   3. Encrypt the session key with NaCl SealedBox (receiver's X25519 public key).
-
 fn encrypt_message(
     msg: &PlainMessage,
     public_key_b64: &str,
@@ -468,34 +441,28 @@ fn encrypt_message(
     let pub_bytes: [u8; 32] = pub_bytes_vec
         .try_into()
         .map_err(|_| anyhow!("Receiver public key must be 32 bytes"))?;
-
     let mut session_key = [0u8; 32];
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut session_key);
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
-
     let enc_session_key = sealed_box_encrypt(&session_key, &pub_bytes)?;
-
     let chacha_key = chacha20poly1305::Key::from_slice(&session_key);
     let cipher = ChaCha20Poly1305::new(chacha_key);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext_with_tag = cipher
         .encrypt(nonce, msg.content.as_bytes())
         .map_err(|e| anyhow!("ChaCha20 encrypt failed: {}", e))?;
-
     let message_id = format!(
         "{}-{}-{}",
         msg.sender_id, msg.correlation_id, receiver_client_id
     );
     let sent_time: DateTime<Utc> = Utc::now();
-
     debug!(
         "Hybrid encryption completed for {}: content_size={}, session_key_size={}",
         receiver_client_id,
         ciphertext_with_tag.len(),
         session_key.len()
     );
-
     Ok(EncryptedMessage {
         message_id,
         receiver_client_id: receiver_client_id.to_string(),
@@ -507,11 +474,6 @@ fn encrypt_message(
     })
 }
 
-/// Encrypt `msg` once for every receiver in `receiver_ids`.
-///
-/// Each receiver gets an independently encrypted copy: same plaintext, but a
-/// fresh session key and nonce so that compromise of one receiver's private key
-/// does not expose messages destined for other receivers.
 fn encrypt_for_all_receivers(
     msg: &PlainMessage,
     receiver_ids: &[String],
@@ -535,7 +497,6 @@ fn encrypt_for_all_receivers(
             .get(&queue_name)
             .cloned()
             .unwrap_or_else(|| format!("{}_key", receiver_id));
-
         match encrypt_message(msg, &pub_key_b64, receiver_id, &routing_key) {
             Ok(em) => {
                 info!(
@@ -552,7 +513,6 @@ fn encrypt_for_all_receivers(
 
 // ─── Protocol helpers ──────────────────────────────────────────────────────
 
-/// Send a single line command and return the server's single-line response.
 async fn send_recv<W, R>(writer: &mut W, reader: &mut R, cmd: &str) -> Result<String>
 where
     W: AsyncWriteExt + Unpin,
@@ -565,8 +525,6 @@ where
     Ok(line.trim().to_string())
 }
 
-/// Declare queues, exchange, and bindings on the broker for the given config.
-/// Called once per TLS connection before any publish commands are issued.
 async fn configure_server<W, R>(
     writer: &mut W,
     reader: &mut R,
@@ -598,8 +556,6 @@ where
     Ok(())
 }
 
-/// Request the Base64-encoded X25519 public key for `client_id` from the server.
-/// Returns `None` if the server reports the key as not found.
 async fn get_public_key<W, R>(
     writer: &mut W,
     reader: &mut R,
@@ -627,8 +583,6 @@ where
 
 type TlsStream = tokio_rustls::client::TlsStream<TcpStream>;
 
-/// Open a new mTLS connection to the broker defined in `cfg`.
-/// The TCP connect is guarded by `tcp_connect_timeout_secs`.
 async fn connect_tls(cfg: &Config, connector: &TlsConnector) -> Result<TlsStream> {
     let addr = format!("{}:{}", cfg.server_address, cfg.server_port);
     let timeout = Duration::from_secs(cfg.sender.tcp_connect_timeout_secs);
@@ -637,9 +591,8 @@ async fn connect_tls(cfg: &Config, connector: &TlsConnector) -> Result<TlsStream
         .context("TCP connect timeout")?
         .with_context(|| format!("TCP connect to {} failed", addr))?;
 
-    // Clone server_address into an owned String so that ServerName<'static> can
-    // be constructed without borrowing from `cfg` (which would require 'static
-    // on the cfg reference see E0521).
+    // Read server_name from the config; the verifier ignores it when check_hostname=false.
+    // Clone the String so ServerName owns the data and its lifetime is not tied to cfg.
     let server_name: rustls::pki_types::ServerName<'static> =
         rustls::pki_types::ServerName::try_from(cfg.server_address.clone())
             .unwrap_or_else(|_| {
@@ -655,8 +608,6 @@ async fn connect_tls(cfg: &Config, connector: &TlsConnector) -> Result<TlsStream
 
 // ─── Fetch public keys from server ─────────────────────────────────────────
 
-/// Try to retrieve all receiver public keys, retrying up to `max_retries` times
-/// with exponential back-off on failure.
 async fn fetch_all_public_keys(
     cfg: &Config,
     connector: &TlsConnector,
@@ -687,8 +638,6 @@ async fn fetch_all_public_keys(
     HashMap::new()
 }
 
-/// Single attempt: open a dedicated TLS connection, configure the broker, fetch
-/// all receiver public keys, save them to disk, and close the connection.
 async fn fetch_all_public_keys_once(
     cfg: &Config,
     connector: &TlsConnector,
@@ -699,11 +648,9 @@ async fn fetch_all_public_keys_once(
         "TLS connection established for fetching public keys. Cipher: {:?}",
         cipher
     );
-
     let (read_half, mut write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half);
     configure_server(&mut write_half, &mut reader, &cfg.bindings).await?;
-
     let mut keys = HashMap::new();
     for receiver_id in &cfg.receiver_client_ids.0 {
         match get_public_key(&mut write_half, &mut reader, receiver_id).await? {
@@ -722,25 +669,39 @@ async fn fetch_all_public_keys_once(
             None => warn!("Skipping {} due to missing public key", receiver_id),
         }
     }
+    write_half.shutdown().await.ok();
     Ok(keys)
 }
 
-// ─── Async pipeline ────────────────────────────────────────────────────────
+// ─── Async pipeline: send messages and receive ACKs asynchronously ────────────
+//
+// Architecture:
+//   • One sender task writes messages at full speed.
+//   • One ACK reader task reads responses and returns results through a channel.
+//   • A Semaphore with capacity `max_inflight` controls concurrent in-flight messages.
+//   • A pending map stores messages that have not received an ACK (for retry).
 
-/// Outcome of a single ACK line read by the ACK reader task.
+/// Result of each ACK sent from the reader task to the main sending task.
 enum AckResult {
-    /// Successful ACK for the given message_id.
+    /// Successful ACK for the specified message_id.
     Ok(String),
-    /// The server replied with an Error: … line for this message.
+    /// Error response from the server for the specified message_id.
     ServerError(String),
-    /// An unrecognised response was received.
+    /// Unknown or unexpected message.
     Unknown(String),
-    /// A read error occurred; the connection is likely broken.
+    /// Error reading from the connection (the connection was likely closed).
     IoError(String),
 }
 
-/// Send all messages using the async pipeline and return when every message has
-/// either been ACK'd or exhausted its retry budget.
+/// Asynchronous sending with an in-flight window.
+///
+/// Overall flow:
+///   1. Acquire one Semaphore permit for each message.
+///   2. Write the message without waiting for an ACK.
+///   3. Store the message in the pending map.
+///   4. The ACK reader task reads ACKs concurrently.
+///   5. When an ACK arrives, release the permit and remove the message from pending.
+///   6. After all sends complete, retry messages without ACKs.
 async fn send_messages_async_pipeline(
     cfg: &Config,
     connector: &TlsConnector,
@@ -748,10 +709,9 @@ async fn send_messages_async_pipeline(
 ) -> Result<()> {
     let scfg = &cfg.sender;
 
-    // ── 1. Acquire receiver public keys ───────────────────────────────────
+    // ─── Fetch public keys ───────────────────────────────────────────────────
     let mut public_keys = fetch_all_public_keys(cfg, connector).await;
     if public_keys.is_empty() {
-        // Fall back to keys cached on disk from a previous run.
         warn!("No public keys from server. Trying local files");
         for id in &cfg.receiver_client_ids.0 {
             let path = format!("keys/{}_public.key", id);
@@ -773,31 +733,34 @@ async fn send_messages_async_pipeline(
         .map(|b| (b.queue_name.clone(), b.routing_key.clone()))
         .collect();
 
-    // ── 2. Open main TLS connection and configure broker ──────────────────
-    // Unused intermediate connections (stream, stream2) left in place to preserve
-    // the original configure_server calls; the actual pipeline uses stream_main.
+    // ─── Open TLS connection ─────────────────────────────────────────────────
     let stream = connect_tls(cfg, connector).await?;
     let cipher = stream.get_ref().1.negotiated_cipher_suite();
     info!("TLS connection established. Cipher: {:?}", cipher);
 
     let (read_half, write_half) = tokio::io::split(stream);
     let reader = BufReader::new(read_half);
+
+    // Put the writer in a Mutex so the sender task can write safely.
     let writer = Arc::new(Mutex::new(write_half));
 
+    // Configure the server with the direct writer.
     {
         let mut w = writer.lock().await;
-        // Temporary reader used only for the synchronous configure exchange.
-        let mut tmp_reader = reader;
+        let mut tmp_reader = reader; // Temporarily used for configuration.
         configure_server(&mut *w, &mut tmp_reader, &cfg.bindings).await?;
+        // Return the reader for ACK reading.
+        // (This block releases it from scope.)
         drop(tmp_reader);
     }
 
-    // Second connection (ACK path placeholder not used in current pipeline).
+    // Separate reader for the ACK task.
     let stream2 = connect_tls(cfg, connector).await?;
     let (read_half2, write_half2) = tokio::io::split(stream2);
     let ack_reader = BufReader::new(read_half2);
     let ack_writer = Arc::new(Mutex::new(write_half2));
 
+    // Configure the second server connection (ACK reader connection).
     {
         let mut w = ack_writer.lock().await;
         let mut tmp_r = ack_reader;
@@ -805,7 +768,31 @@ async fn send_messages_async_pipeline(
         drop(tmp_r);
     }
 
-    // ── 3. Main pipeline connection (split write / read halves) ───────────
+    // ─── Channel for ACK results ─────────────────────────────────────────────
+    // Channel capacity equals max_inflight so the sender task does not block.
+    let (ack_tx, mut ack_rx) = tokio::sync::mpsc::channel::<AckResult>(scfg.max_inflight * 2);
+
+    // ─── Semaphore: control the number of concurrent in-flight messages ──────
+    let semaphore = Arc::new(Semaphore::new(scfg.max_inflight));
+
+    // ─── Pending map: message_id -> EncryptedMessage for retry ───────────────
+    let pending: Arc<Mutex<HashMap<String, EncryptedMessage>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+
+    // ─── Start the ACK reader task ───────────────────────────────────────────
+    // This task independently reads ACKs from the second connection.
+    let ack_timeout = Duration::from_secs(scfg.ack_timeout_secs);
+    let ack_tx_clone = ack_tx.clone();
+
+    // ACK reader on the second connection (we cannot split one connection
+    // between two tasks, but we can give the first connection's read_half to the ACK task).
+    //
+    // ─── Correct design: split the first connection between writer and ACK reader tasks ───
+    //
+    // First connection: write_half for sending, read_half for reading ACKs.
+    // Both can operate concurrently because the connection has been split.
+
+    // Reconnect and split the new connection correctly.
     let stream_main = connect_tls(cfg, connector).await?;
     let cipher_main = stream_main.get_ref().1.negotiated_cipher_suite();
     info!(
@@ -817,29 +804,13 @@ async fn send_messages_async_pipeline(
     let main_writer = Arc::new(Mutex::new(main_write));
     let mut main_reader = BufReader::new(main_read);
 
+    // Configure the main connection.
     {
         let mut w = main_writer.lock().await;
         configure_server(&mut *w, &mut main_reader, &cfg.bindings).await?;
     }
 
-    // mpsc channel carrying ACK outcomes from the reader task to the main task.
-    // Capacity = 2 × max_inflight so the reader is never blocked by a full channel.
-    let (ack_tx, mut ack_rx) = tokio::sync::mpsc::channel::<AckResult>(scfg.max_inflight * 2);
-
-    // Semaphore: limits simultaneous in-flight messages.
-    let semaphore = Arc::new(Semaphore::new(scfg.max_inflight));
-
-    // Pending map: holds every message that has been written but not yet ACK'd.
-    let pending: Arc<Mutex<HashMap<String, EncryptedMessage>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-
-    // ── 4. Spawn ACK reader task ───────────────────────────────────────────
-    let ack_timeout = Duration::from_secs(scfg.ack_timeout_secs);
-    let ack_tx_clone = ack_tx.clone();
-
-    // The read half of the main connection is moved into this task.  Because
-    // tokio::io::split gives us independent read/write halves, the write half
-    // can be locked and used concurrently in the send loop below.
+    // Give main_reader to the ACK task.
     let ack_task = {
         let ack_tx = ack_tx_clone;
         let sem = semaphore.clone();
@@ -852,8 +823,9 @@ async fn send_messages_async_pipeline(
                     tokio::time::timeout(ack_timeout, reader.read_line(&mut line)).await;
                 match read_result {
                     Err(_elapsed) => {
-                        // Global idle timeout on the read half the drain phase
-                        // in the main task handles per-message timeouts separately.
+                        // Timeout — release the channel so the main task knows.
+                        // (This is not a global timeout; each message has its own timeout below.)
+                        // Stop here so the channel can be closed.
                         debug!("ACK reader global timeout, stopping");
                         break;
                     }
@@ -862,7 +834,7 @@ async fn send_messages_async_pipeline(
                         break;
                     }
                     Ok(Ok(0)) => {
-                        // EOF server closed the connection.
+                        // EOF — the connection was closed.
                         debug!("ACK reader: connection closed (EOF)");
                         break;
                     }
@@ -871,7 +843,7 @@ async fn send_messages_async_pipeline(
                         debug!("ACK reader received: {}", response);
 
                         let result = if let Some(id) = response.strip_prefix("ACK ") {
-                            // Happy path: release the semaphore slot and remove from pending.
+                            // Successful ACK: release the permit and remove it from pending.
                             pending_map.lock().await.remove(id);
                             sem.add_permits(1);
                             AckResult::Ok(id.to_string())
@@ -882,8 +854,7 @@ async fn send_messages_async_pipeline(
                         };
 
                         if ack_tx.send(result).await.is_err() {
-                            // Receiver side of the channel was dropped main task exited.
-                            break;
+                            break; // The receiver on the other side of the channel was closed.
                         }
                     }
                 }
@@ -891,13 +862,14 @@ async fn send_messages_async_pipeline(
         })
     };
 
-    // ── 5. Send loop ──────────────────────────────────────────────────────
+    // ─── Main sending loop ───────────────────────────────────────────────────
     let start = Instant::now();
     let num_messages = scfg.num_messages;
     let batch_size = scfg.batch_size;
     let batch_delay = Duration::from_millis(scfg.batch_delay_ms);
     let mut sent_count = 0usize;
     let mut failed_ids: Vec<String> = Vec::new();
+
     let mut batch_num = 0usize;
     let mut i = 0usize;
 
@@ -916,14 +888,15 @@ async fn send_messages_async_pipeline(
             let encrypted = encrypt_for_all_receivers(&msg, &receiver_ids, &routing_map);
 
             for em in encrypted {
-                // Block here if the in-flight window is full.
-                // This provides backpressure without spinning.
+                // Acquire one semaphore permit; wait here if the limit is reached.
+                // (This is our backpressure mechanism.)
                 let _permit = semaphore
                     .clone()
                     .acquire_owned()
                     .await
                     .expect("Semaphore closed");
 
+                // Prepare the publish command.
                 let payload = serde_json::json!({
                     "message_id":         em.message_id,
                     "ciphertext":         em.ciphertext,
@@ -938,8 +911,7 @@ async fn send_messages_async_pipeline(
                     cfg.exchange_name, em.routing_key, payload_str
                 );
 
-                // Store in pending map *before* writing so the ACK reader can
-                // never race ahead and remove an entry that does not exist yet.
+                // Store the message in the pending map before sending.
                 {
                     let mut map = pending.lock().await;
                     map.insert(em.message_id.clone(), em.clone());
@@ -947,13 +919,13 @@ async fn send_messages_async_pipeline(
 
                 debug!("Sending message {} (async)", em.message_id);
 
+                // Send without waiting for an ACK.
                 let mut w = main_writer.lock().await;
                 if let Err(e) = w.write_all(command.as_bytes()).await {
                     error!("Write error for message {}: {}", em.message_id, e);
                     pending.lock().await.remove(&em.message_id);
                     failed_ids.push(em.message_id.clone());
-                    // Restore the permit manually because the ACK reader will
-                    // never see this message and therefore never call add_permits.
+                    // Release the permit because the ACK reader will not release it.
                     semaphore.add_permits(1);
                     continue;
                 }
@@ -965,9 +937,10 @@ async fn send_messages_async_pipeline(
                     continue;
                 }
 
-                // Transfer permit ownership to the ACK reader task: forget the
-                // OwnedSemaphorePermit here so it is not released when _permit
-                // drops.  The ACK reader calls add_permits(1) instead.
+                // Transfer ownership of the permit; the ACK reader will release it.
+                // (_permit would otherwise be dropped here and release another permit.)
+                // Prevent double release by forgetting the permit;
+                // the ACK reader is responsible for releasing it.
                 std::mem::forget(_permit);
 
                 sent_count += 1;
@@ -975,27 +948,30 @@ async fn send_messages_async_pipeline(
             i += 1;
         }
 
-        // Drain any ACKs that arrived while we were sending this batch
-        // (non-blocking we do not want to stall the send loop).
+        // Process ACK results received so far (non-blocking).
         while let Ok(result) = ack_rx.try_recv() {
             match result {
                 AckResult::Ok(id) => info!("ACK received for {}", id),
-                AckResult::ServerError(e) => error!("Server error: {}", e),
+                AckResult::ServerError(e) => {
+                    error!("Server error: {}", e);
+                }
                 AckResult::Unknown(r) => warn!("Unknown response: {}", r),
-                AckResult::IoError(e) => error!("IO error in ACK reader: {}", e),
+                AckResult::IoError(e) => {
+                    error!("IO error in ACK reader: {}", e);
+                }
             }
         }
 
         if batch_end < num_messages {
             debug!(
-                "Batch {} complete, waiting {:?} before next batch",
+                "Batch {} completed, waiting {:?} before next batch",
                 batch_num, batch_delay
             );
             sleep(batch_delay).await;
         }
     }
 
-    // ── 6. Drain remaining ACKs ───────────────────────────────────────────
+    // ─── Wait for all remaining ACKs ─────────────────────────────────────────
     info!(
         "All {} messages sent. Waiting for remaining ACKs...",
         sent_count
@@ -1021,28 +997,24 @@ async fn send_messages_async_pipeline(
                     break;
                 }
             },
-            Ok(None) => break, 
-            Err(_) => {}       
+            Ok(None) => break, // Channel closed.
+            Err(_) => {}       // Short timeout; continue.
         }
     }
 
-    // ── 7. Retry unacknowledged messages ─────────────────────────────────
+    // ─── Collect messages without ACKs and retry ──────────────────────────────
     let unacked: Vec<EncryptedMessage> = {
         let map = pending.lock().await;
         map.values().cloned().collect()
     };
     if !unacked.is_empty() {
-        warn!(
-            "{} message(s) without ACK after drain phase starting retry",
-            unacked.len()
-        );
+        warn!("{} messages without ACK — starting retry", unacked.len());
         for em in &unacked {
             failed_ids.push(em.message_id.clone());
         }
     }
 
-    // Retry loop uses simple synchronous semantics (one send → wait for ACK)
-    // because the number of retried messages is expected to be small.
+    // Retry with simple synchronous logic (there are few previously failed messages).
     let mut final_failed = 0usize;
     for em in &unacked {
         let mut success = false;
@@ -1076,7 +1048,7 @@ async fn send_messages_async_pipeline(
                     continue;
                 }
             }
-            // Wait for the ACK that belongs to this specific message.
+            // Wait for an ACK with a timeout.
             match tokio::time::timeout(
                 Duration::from_secs(scfg.ack_timeout_secs),
                 ack_rx.recv(),
@@ -1103,10 +1075,10 @@ async fn send_messages_async_pipeline(
         }
     }
 
-    // ── 8. Shutdown ───────────────────────────────────────────────────────
-    drop(ack_tx); // closing the sender side signals the ACK reader task to stop
+    // ─── Shutdown ────────────────────────────────────────────────────────────
+    drop(ack_tx); // Close the channel so the ACK task can exit.
     ack_task.await.ok();
-    drop(main_writer);
+    main_writer.lock().await.shutdown().await.ok();
 
     let elapsed = start.elapsed().as_secs_f64();
     info!(
@@ -1130,7 +1102,6 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    // Ensure runtime directories exist before logging or key I/O begins.
     for dir in ["logs", "keys"] {
         std::fs::create_dir_all(dir)?;
     }

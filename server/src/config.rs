@@ -22,7 +22,7 @@ pub struct ServerConfig {
     pub connection_type: String,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 pub struct TlsConfig {
     pub cert_path: Option<String>,
     pub key_path: Option<String>,
@@ -55,12 +55,96 @@ pub struct EncryptionConfig {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct PerformanceConfig {
+    #[serde(default = "default_max_queue_size")]
+    pub max_queue_size: usize,
+    #[serde(default = "default_heartbeat_timeout")]
+    pub heartbeat_timeout: u64,
+    #[serde(default = "default_cleanup_interval")]
+    pub cleanup_interval: u64,
+    #[serde(default = "default_consumer_cleanup_interval")]
+    pub consumer_cleanup_interval: u64,
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout_sec: u64,
+}
+
+fn default_max_queue_size() -> usize { 10_000 }
+fn default_heartbeat_timeout() -> u64 { 60 }
+fn default_cleanup_interval() -> u64 { 3000 }
+fn default_consumer_cleanup_interval() -> u64 { 60 }
+fn default_idle_timeout() -> u64 { 60 }
+
+impl Default for PerformanceConfig {
+    fn default() -> Self { Self { max_queue_size: default_max_queue_size(), heartbeat_timeout: default_heartbeat_timeout(), cleanup_interval: default_cleanup_interval(), consumer_cleanup_interval: default_consumer_cleanup_interval(), idle_timeout_sec: default_idle_timeout() } }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct AdminConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_admin_address")]
+    pub address: String,
+    #[serde(default)]
+    pub allowed_cns: Vec<String>,
+}
+fn default_admin_address() -> String { "127.0.0.1:9091".to_string() }
+impl Default for AdminConfig {
+    fn default() -> Self { Self { enabled: false, address: default_admin_address(), allowed_cns: Vec::new() } }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct RateLimitConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_global_rps")]
+    pub global_rps: f64,
+    #[serde(default = "default_global_burst")]
+    pub global_burst: f64,
+    #[serde(default = "default_publish_rps")]
+    pub publish_rps: f64,
+    #[serde(default = "default_publish_burst")]
+    pub publish_burst: f64,
+    #[serde(default = "default_max_connections_per_ip")]
+    pub max_connections_per_ip: usize,
+    #[serde(default = "default_max_connections_per_cn")]
+    pub max_connections_per_cn: usize,
+}
+fn default_global_rps() -> f64 { 100.0 }
+fn default_global_burst() -> f64 { 200.0 }
+fn default_publish_rps() -> f64 { 50.0 }
+fn default_publish_burst() -> f64 { 100.0 }
+fn default_max_connections_per_ip() -> usize { 50 }
+fn default_max_connections_per_cn() -> usize { 20 }
+impl Default for RateLimitConfig {
+    fn default() -> Self { Self { enabled: false, global_rps: default_global_rps(), global_burst: default_global_burst(), publish_rps: default_publish_rps(), publish_burst: default_publish_burst(), max_connections_per_ip: default_max_connections_per_ip(), max_connections_per_cn: default_max_connections_per_cn() } }
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct AclConfig {
+    #[serde(default)]
+    pub sender_cns: Vec<String>,
+    #[serde(default)]
+    pub receiver_cns: Vec<String>,
+    #[serde(default)]
+    pub admin_cns: Vec<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct Config {
     pub server: ServerConfig,
+    #[serde(default)]
     pub tls: TlsConfig,
     pub logging: LoggingConfig,
     pub database: DatabaseConfig,
     pub encryption: EncryptionConfig,
+    #[serde(default)]
+    pub performance: PerformanceConfig,
+    #[serde(default)]
+    pub admin: AdminConfig,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+    #[serde(default)]
+    pub acl: AclConfig,
 }
 
 impl Config {
@@ -144,6 +228,10 @@ impl Config {
                 algorithm: config.encryption.algorithm,
                 aes_key: config.encryption.aes_key,
             },
+            performance: config.performance,
+            admin: config.admin,
+            rate_limit: config.rate_limit,
+            acl: config.acl,
         };
 
         info!("Configuration loaded successfully");

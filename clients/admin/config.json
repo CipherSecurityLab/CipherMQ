@@ -1,0 +1,13 @@
+{
+    "server_name": "CipherMQ Standalone",
+    "poll_interval_secs": 3,
+    "web_address": "127.0.0.1:8080",
+    "tls": {
+        "ca_cert_path": "../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/ca.crt",
+        "client_cert_path": "../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/clients/admin/client.crt",
+        "client_key_path": "../../create_ca_key/Rust_CA_Maker_ECDSA_P-384_Multi_Client/certs/clients/admin/client.key"
+    },
+    "server": {
+        "admin_address": "127.0.0.1:9091"
+    }
+}

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CipherMQ Standalone Admin</title>
+<style>
+:root{--bg:#0a0c14;--card:#141722;--border:#252a3a;--text:#e2e8f0;--dim:#6b7280;--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--purple:#a855f7;--orange:#f97316;--accent:#6c63ff;--cyan:#06b6d4;--yellow:#eab308;--pink:#ec4899}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'SF Mono','Cascadia Code','Fira Code',monospace;background:var(--bg);color:var(--text);min-height:100vh}
+.header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--card);border-bottom:1px solid var(--border)}
+.header h1{font-size:16px}.header h1 span{color:var(--accent)}
+.header-right{display:flex;align-items:center;gap:16px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase}
+.badge.online{background:rgba(34,197,94,.15);color:var(--green)}
+.badge.offline{background:rgba(239,68,68,.15);color:var(--red)}
+.badge .dot{width:7px;height:7px;border-radius:50%}
+.badge.online .dot{background:var(--green)}.badge.offline .dot{background:var(--red)}
+.refresh{font-size:10px;color:var(--dim)}
+.container{padding:16px 24px;max-width:1400px;margin:0 auto}
+.grid-top{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px}
+@media(max-width:1100px){.grid-top{grid-template-columns:repeat(3,1fr)}.grid-3{grid-template-columns:1fr}}
+@media(max-width:700px){.grid-top{grid-template-columns:repeat(2,1fr)}.grid-2{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
+.card-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);margin-bottom:6px}
+.stat{font-size:24px;font-weight:700;line-height:1.1}
+.stat.green{color:var(--green)}.stat.blue{color:var(--blue)}.stat.purple{color:var(--purple)}
+.stat.orange{color:var(--orange)}.stat.accent{color:var(--accent)}.stat.red{color:var(--red)}
+.stat.cyan{color:var(--cyan)}.stat.yellow{color:var(--yellow)}.stat.pink{color:var(--pink)}
+.stat-sub{font-size:10px;color:var(--dim);margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);border-bottom:1px solid var(--border)}
+td{padding:6px 10px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+.conn-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.05);border-radius:6px;padding:4px 10px;font-size:11px;margin:2px}
+.conn-chip .l{color:var(--dim)}.conn-chip .v{color:var(--accent);font-weight:600}
+.section-title{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--dim);margin-bottom:8px;letter-spacing:.5px}
+.footer{text-align:center;padding:14px;font-size:10px;color:var(--dim);border-top:1px solid var(--border);margin-top:16px}
+.loading{color:var(--dim);font-size:12px}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600}
+.tag.green{background:rgba(34,197,94,.15);color:var(--green)}
+.tag.red{background:rgba(239,68,68,.15);color:var(--red)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🔐 <span>CipherMQ</span> Standalone Admin</h1>
+  <div class="header-right">
+    <span class="refresh" id="refresh-ind">connecting…</span>
+    <div class="badge offline" id="health-badge"><span class="dot"></span><span id="health-text">OFFLINE</span></div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Row 1: Top stats -->
+  <div class="grid-top">
+    <div class="card"><div class="card-title">Connected Clients</div><div class="stat blue" id="v-clients">—</div></div>
+    <div class="card"><div class="card-title">Queues</div><div class="stat green" id="v-queues">—</div></div>
+    <div class="card"><div class="card-title">Consumers</div><div class="stat cyan" id="v-consumers">—</div></div>
+    <div class="card"><div class="card-title">Messages in Queues</div><div class="stat purple" id="v-inqueues">—</div></div>
+    <div class="card"><div class="card-title">Published</div><div class="stat accent" id="v-published">—</div><div class="stat-sub" id="v-pub-sub"></div></div>
+    <div class="card"><div class="card-title">Uptime</div><div class="stat orange" id="v-uptime">—</div></div>
+  </div>
+
+  <!-- Row 2: Counters detail -->
+  <div class="section-title">Counters</div>
+  <div class="grid-top" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+    <div class="card"><div class="card-title">Acked</div><div class="stat green" id="v-acked">—</div></div>
+    <div class="card"><div class="card-title">Delivered</div><div class="stat blue" id="v-delivered">—</div></div>
+    <div class="card"><div class="card-title">Errors</div><div class="stat red" id="v-errors">—</div></div>
+    <div class="card"><div class="card-title">Rate Limited</div><div class="stat yellow" id="v-ratelimited">—</div></div>
+  </div>
+  <div class="grid-top" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+    <div class="card"><div class="card-title">Total Connections</div><div class="stat blue" id="v-totalconn">—</div></div>
+    <div class="card"><div class="card-title">Rejected (Rate)</div><div class="stat red" id="v-rejrate">—</div></div>
+    <div class="card"><div class="card-title">Rejected (Limit)</div><div class="stat red" id="v-rejconn">—</div></div>
+    <div class="card"><div class="card-title">Exchanges</div><div class="stat pink" id="v-exchanges">—</div></div>
+  </div>
+
+  <!-- Row 3: Queues, Bindings, Connections -->
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-title">Queues</div>
+      <div id="queues-container"><p class="loading">Loading…</p></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Bindings</div>
+      <div id="bindings-container"><p class="loading">Loading…</p></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Active Connections</div>
+      <div id="conn-container"><p class="loading">Loading…</p></div>
+    </div>
+  </div>
+
+  <!-- Row 4: Exchanges, Server Info -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Exchanges</div>
+      <div id="exchanges-container"><p class="loading">Loading…</p></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Server Info</div>
+      <div id="server-info"><p class="loading">Loading…</p></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">CipherMQ Standalone Admin · auto-refresh every 3s</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const fmt=n=>n==null?'—':Number(n).toLocaleString();
+const fmtUptime=s=>{if(!s)return'—';const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);if(d>0)return d+'d '+h+'h';if(h>0)return h+'h '+m+'m';return m+'m '+(s%60)+'s';};
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+async function fetchStatus(){
+  try{
+    const res=await fetch('/api/status');
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const n=await res.json();
+    const c=n.counters||{};
+    const cs=n.connection_stats||{};
+    const sv=n.server||{};
+    const sn=n.snapshot||{};
+    const lv=n.live||{};
+    const ok=!!n.reachable;
+
+    // Health badge
+    $('health-badge').className='badge '+(ok?'online':'offline');
+    $('health-text').textContent=ok?'ONLINE':'OFFLINE';
+
+    // Top stats
+    $('v-clients').textContent=fmt(lv.connected_clients);
+    $('v-queues').textContent=fmt(lv.queues);
+    $('v-consumers').textContent=fmt(lv.total_consumers);
+    $('v-inqueues').textContent=fmt(lv.total_messages);
+    $('v-published').textContent=fmt(c.messages_published);
+    $('v-pub-sub').textContent='Delivered: '+fmt(c.messages_delivered);
+    $('v-uptime').textContent=fmtUptime(sv.uptime_secs);
+
+    // Counters
+    $('v-acked').textContent=fmt(c.messages_acked);
+    $('v-delivered').textContent=fmt(c.messages_delivered);
+    $('v-errors').textContent=fmt(c.errors_total);
+    $('v-ratelimited').textContent=fmt(c.requests_rate_limited);
+    $('v-totalconn').textContent=fmt(c.connections_total);
+    $('v-rejrate').textContent=fmt(c.connections_rejected_rate_limit);
+    $('v-rejconn').textContent=fmt(c.connections_rejected_conn_limit);
+    $('v-exchanges').textContent=fmt(lv.exchanges);
+
+    // Queues table
+    const queues=n.queues||[];
+    if(queues.length>0){
+      let h='<table><tr><th>Queue</th><th>Msgs</th><th>Consumers</th></tr>';
+      for(const q of queues)h+='<tr><td>'+esc(q.name)+'</td><td>'+fmt(q.message_count)+'</td><td>'+fmt(q.consumer_count)+'</td></tr>';
+      h+='</table>';
+      $('queues-container').innerHTML=h;
+    }else $('queues-container').innerHTML='<p class="loading">No queues</p>';
+
+    // Bindings
+    const bindings=n.bindings||[];
+    if(bindings.length>0){
+      let h='<table><tr><th>Exchange</th><th>→ Queue</th><th>Key</th></tr>';
+      for(const b of bindings)h+='<tr><td>'+esc(b.exchange)+'</td><td>'+esc(b.queue)+'</td><td>'+esc(b.routing_key)+'</td></tr>';
+      h+='</table>';
+      $('bindings-container').innerHTML=h;
+    }else $('bindings-container').innerHTML='<p class="loading">No bindings</p>';
+
+    // Connections
+    const byCn=cs.by_cn||{};
+    const byIp=cs.by_ip||{};
+    let ch='';
+    if(Object.keys(byCn).length>0){
+      ch+='<div class="card-title">By Client CN</div><div>';
+      for(const[k,v]of Object.entries(byCn))ch+='<div class="conn-chip"><span class="l">'+esc(k)+'</span><span class="v">'+v+'</span></div>';
+      ch+='</div>';
+    }
+    if(Object.keys(byIp).length>0){
+      ch+='<div class="card-title" style="margin-top:8px">By IP</div><div>';
+      for(const[k,v]of Object.entries(byIp))ch+='<div class="conn-chip"><span class="l">'+esc(k)+'</span><span class="v">'+v+'</span></div>';
+      ch+='</div>';
+    }
+    if(!ch)ch='<p class="loading">No active connections</p>';
+    $('conn-container').innerHTML=ch;
+
+    // Exchanges
+    const exchanges=n.exchanges||[];
+    if(exchanges.length>0){
+      let h='<div>';
+      for(const e of exchanges)h+='<div class="conn-chip"><span class="v">'+esc(e)+'</span></div>';
+      h+='</div>';
+      $('exchanges-container').innerHTML=h;
+    }else $('exchanges-container').innerHTML='<p class="loading">No exchanges</p>';
+
+    // Server info
+    let si='<table>';
+    si+='<tr><td style="color:var(--dim)">Name</td><td>'+esc(sv.name||'—')+'</td></tr>';
+    si+='<tr><td style="color:var(--dim)">Health</td><td><span class="tag '+(sv.health==='healthy'?'green':'red')+'">'+esc(sv.health||'—')+'</span></td></tr>';
+    si+='<tr><td style="color:var(--dim)">Max Queue Size</td><td>'+fmt(sv.max_queue_size)+'</td></tr>';
+    si+='<tr><td style="color:var(--dim)">Snapshot Clients</td><td>'+fmt(sn.connected_clients)+'</td></tr>';
+    si+='<tr><td style="color:var(--dim)">Snapshot Queues</td><td>'+fmt(sn.queue_count)+'</td></tr>';
+    si+='<tr><td style="color:var(--dim)">Snapshot Messages</td><td>'+fmt(sn.total_messages)+'</td></tr>';
+    si+='<tr><td style="color:var(--dim)">Snapshot Consumers</td><td>'+fmt(sn.consumer_count)+'</td></tr>';
+    si+='</table>';
+    $('server-info').innerHTML=si;
+
+    $('refresh-ind').textContent='updated '+new Date().toLocaleTimeString();
+  }catch(e){
+    console.error('Fetch error:',e);
+    $('health-badge').className='badge offline';
+    $('health-text').textContent='OFFLINE';
+    $('refresh-ind').textContent='connection failed';
+  }
+}
+
+fetchStatus();
+setInterval(fetchStatus,3000);
+</script>
+</body>
+</html>
